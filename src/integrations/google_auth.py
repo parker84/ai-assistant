@@ -15,6 +15,9 @@ from src.config import (
     GOOGLE_SCOPES,
     DATA_DIR,
 )
+from src.logging_utils import get_logger
+
+logger = get_logger(__name__)
 
 
 def get_google_auth_url() -> str:
@@ -76,6 +79,7 @@ def exchange_code_for_tokens(code: str) -> Optional[dict]:
 
 def get_credentials_from_tokens(token_data: dict) -> Optional[Credentials]:
     """Create Credentials object from stored token data."""
+    logger.info("=== GET CREDENTIALS FROM TOKENS ===")
     try:
         from datetime import datetime
         
@@ -84,8 +88,13 @@ def get_credentials_from_tokens(token_data: dict) -> Optional[Credentials]:
         if token_data.get("expiry"):
             try:
                 expiry = datetime.fromisoformat(token_data["expiry"].replace("Z", "+00:00"))
-            except (ValueError, AttributeError):
-                pass
+                logger.debug(f"Token expiry: {expiry}")
+            except (ValueError, AttributeError) as e:
+                logger.warning(f"Could not parse expiry: {e}")
+        
+        logger.debug(f"Token present: {bool(token_data.get('token'))}")
+        logger.debug(f"Refresh token present: {bool(token_data.get('refresh_token'))}")
+        logger.debug(f"Scopes: {token_data.get('scopes')}")
         
         credentials = Credentials(
             token=token_data.get("token"),
@@ -97,16 +106,25 @@ def get_credentials_from_tokens(token_data: dict) -> Optional[Credentials]:
             expiry=expiry,
         )
         
-        # Always try to refresh if we have a refresh token and token might be expired
+        logger.debug(f"Credentials valid: {credentials.valid}")
+        logger.debug(f"Credentials expired: {credentials.expired}")
+        
+        # Always try to refresh if we have a refresh token
         if credentials.refresh_token:
             try:
+                logger.info("Attempting to refresh token...")
                 credentials.refresh(Request())
-            except Exception:
-                # If refresh fails, the token might still be valid
-                pass
+                logger.info("Token refreshed successfully")
+                logger.debug(f"New token valid: {credentials.valid}")
+            except Exception as e:
+                logger.warning(f"Token refresh failed (may still be valid): {e}")
         
+        logger.info("Credentials created successfully")
         return credentials
     except Exception as e:
+        logger.error(f"Error creating credentials: {e}")
+        import traceback
+        logger.error(f"Traceback: {traceback.format_exc()}")
         st.error(f"Error creating credentials: {e}")
         return None
 

@@ -21,6 +21,9 @@ from src.integrations.calendar import (
 )
 from src.knowledge_base import KnowledgeBase
 from src.assistant import AIAssistant
+from src.logging_utils import get_logger
+
+logger = get_logger(__name__)
 
 # Page config
 st.set_page_config(
@@ -340,6 +343,7 @@ def render_chat_page():
             if st.session_state.assistant:
                 st.session_state.assistant.clear_conversation()
             st.rerun()
+    
 
 
 def render_calendar_page():

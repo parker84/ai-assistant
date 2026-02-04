@@ -6,11 +6,21 @@ from google.oauth2.credentials import Credentials
 import pytz
 
 from src.config import TIMEZONE
+from src.logging_utils import get_logger
+
+logger = get_logger(__name__)
 
 
 def get_calendar_service(credentials: Credentials):
     """Build Google Calendar service."""
-    return build("calendar", "v3", credentials=credentials)
+    logger.debug("Building Google Calendar service...")
+    try:
+        service = build("calendar", "v3", credentials=credentials)
+        logger.debug("Calendar service built successfully")
+        return service
+    except Exception as e:
+        logger.error(f"Failed to build calendar service: {e}")
+        raise
 
 
 def get_todays_events(credentials: Credentials) -> List[Dict[str, Any]]:
@@ -89,44 +99,70 @@ def create_event(
     location: str = "",
 ) -> Dict[str, Any]:
     """Create a new calendar event."""
-    service = get_calendar_service(credentials)
-    tz = pytz.timezone(TIMEZONE)
+    logger.info(f"=== CREATE EVENT START ===")
+    logger.info(f"Summary: {summary}")
+    logger.info(f"Start: {start_time}")
+    logger.info(f"End: {end_time}")
+    logger.info(f"Attendees: {attendees}")
+    logger.info(f"Recurrence: {recurrence}")
     
-    # Ensure timezone awareness
-    if start_time.tzinfo is None:
-        start_time = tz.localize(start_time)
-    if end_time.tzinfo is None:
-        end_time = tz.localize(end_time)
-    
-    event = {
-        "summary": summary,
-        "description": description,
-        "start": {
-            "dateTime": start_time.isoformat(),
-            "timeZone": TIMEZONE,
-        },
-        "end": {
-            "dateTime": end_time.isoformat(),
-            "timeZone": TIMEZONE,
-        },
-    }
-    
-    if location:
-        event["location"] = location
-    
-    if attendees:
-        event["attendees"] = [{"email": email} for email in attendees]
-    
-    if recurrence:
-        event["recurrence"] = recurrence
-    
-    created_event = service.events().insert(
-        calendarId="primary",
-        body=event,
-        sendUpdates="all" if attendees else "none",
-    ).execute()
-    
-    return created_event
+    try:
+        service = get_calendar_service(credentials)
+        tz = pytz.timezone(TIMEZONE)
+        
+        # Ensure timezone awareness
+        if start_time.tzinfo is None:
+            start_time = tz.localize(start_time)
+            logger.debug(f"Localized start_time to: {start_time}")
+        if end_time.tzinfo is None:
+            end_time = tz.localize(end_time)
+            logger.debug(f"Localized end_time to: {end_time}")
+        
+        event = {
+            "summary": summary,
+            "description": description,
+            "start": {
+                "dateTime": start_time.isoformat(),
+                "timeZone": TIMEZONE,
+            },
+            "end": {
+                "dateTime": end_time.isoformat(),
+                "timeZone": TIMEZONE,
+            },
+        }
+        
+        if location:
+            event["location"] = location
+        
+        if attendees:
+            event["attendees"] = [{"email": email} for email in attendees]
+        
+        if recurrence:
+            event["recurrence"] = recurrence
+        
+        logger.info(f"Event payload: {event}")
+        logger.info("Calling Google Calendar API to insert event...")
+        
+        created_event = service.events().insert(
+            calendarId="primary",
+            body=event,
+            sendUpdates="all" if attendees else "none",
+        ).execute()
+        
+        logger.info(f"=== EVENT CREATED SUCCESSFULLY ===")
+        logger.info(f"Event ID: {created_event.get('id')}")
+        logger.info(f"Event link: {created_event.get('htmlLink')}")
+        logger.info(f"Full response: {created_event}")
+        
+        return created_event
+        
+    except Exception as e:
+        logger.error(f"=== EVENT CREATION FAILED ===")
+        logger.error(f"Error type: {type(e).__name__}")
+        logger.error(f"Error message: {str(e)}")
+        import traceback
+        logger.error(f"Traceback: {traceback.format_exc()}")
+        raise Exception(f"Failed to create event '{summary}': {str(e)}")
 
 
 def create_recurring_birthday(
@@ -135,26 +171,58 @@ def create_recurring_birthday(
     birthday_date: datetime,
     reminder_days_before: int = 1,
 ) -> Dict[str, Any]:
-    """Create a recurring yearly birthday event."""
-    tz = pytz.timezone(TIMEZONE)
+    """Create a recurring yearly birthday event as an all-day event."""
+    logger.info(f"=== CREATE BIRTHDAY START ===")
+    logger.info(f"Name: {name}")
+    logger.info(f"Birthday date: {birthday_date}")
     
-    # Set to all-day event
-    start_date = birthday_date.replace(hour=0, minute=0, second=0, microsecond=0)
-    end_date = start_date + timedelta(days=1)
-    
-    # Yearly recurrence
-    recurrence = ["RRULE:FREQ=YEARLY"]
-    
-    event = create_event(
-        credentials=credentials,
-        summary=f"🎂 {name}'s Birthday",
-        start_time=start_date,
-        end_time=end_date,
-        description=f"Don't forget to wish {name} a happy birthday!",
-        recurrence=recurrence,
-    )
-    
-    return event
+    try:
+        service = get_calendar_service(credentials)
+        
+        # Format as date string for all-day event
+        start_date_str = birthday_date.strftime("%Y-%m-%d")
+        end_date = birthday_date + timedelta(days=1)
+        end_date_str = end_date.strftime("%Y-%m-%d")
+        
+        logger.info(f"Start date (all-day): {start_date_str}")
+        logger.info(f"End date (all-day): {end_date_str}")
+        
+        # Yearly recurrence
+        recurrence = ["RRULE:FREQ=YEARLY"]
+        
+        event = {
+            "summary": f"🎂 {name}'s Birthday",
+            "description": f"Don't forget to wish {name} a happy birthday!",
+            "start": {
+                "date": start_date_str,
+            },
+            "end": {
+                "date": end_date_str,
+            },
+            "recurrence": recurrence,
+        }
+        
+        logger.info(f"Birthday event payload: {event}")
+        logger.info("Calling Google Calendar API to insert birthday...")
+        
+        created_event = service.events().insert(
+            calendarId="primary",
+            body=event,
+        ).execute()
+        
+        logger.info(f"=== BIRTHDAY CREATED SUCCESSFULLY ===")
+        logger.info(f"Event ID: {created_event.get('id')}")
+        logger.info(f"Event link: {created_event.get('htmlLink')}")
+        
+        return created_event
+        
+    except Exception as e:
+        logger.error(f"=== BIRTHDAY CREATION FAILED ===")
+        logger.error(f"Error type: {type(e).__name__}")
+        logger.error(f"Error message: {str(e)}")
+        import traceback
+        logger.error(f"Traceback: {traceback.format_exc()}")
+        raise Exception(f"Failed to create birthday for '{name}': {str(e)}")
 
 
 def create_interview_event(

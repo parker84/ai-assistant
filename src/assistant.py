@@ -12,6 +12,9 @@ from src.config import (
     TIMEZONE,
 )
 from src.knowledge_base import KnowledgeBase
+from src.logging_utils import get_logger
+
+logger = get_logger(__name__)
 
 
 class AIAssistant:
@@ -45,62 +48,90 @@ Always be helpful, proactive, and personable. Remember context from the conversa
 
     def __init__(self, user_email: str):
         """Initialize the assistant for a user."""
+        logger.info(f"=== INITIALIZING AI ASSISTANT ===")
+        logger.info(f"User: {user_email}")
+        
         self.user_email = user_email
         self.knowledge_base = KnowledgeBase(user_email)
         self.conversation_history: List[Dict[str, str]] = []
         
         # Initialize LLM client
+        logger.info(f"LLM Provider: {LLM_PROVIDER}")
+        logger.info(f"LLM Model: {LLM_MODEL}")
+        
         if LLM_PROVIDER == "anthropic":
             try:
                 import anthropic
                 self.client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
                 self.provider = "anthropic"
+                logger.info("Anthropic client initialized successfully")
             except ImportError:
                 self.client = None
                 self.provider = None
+                logger.error("Failed to import anthropic library")
         elif LLM_PROVIDER == "openai":
             try:
                 from openai import OpenAI
                 self.client = OpenAI(api_key=OPENAI_API_KEY)
                 self.provider = "openai"
+                logger.info("OpenAI client initialized successfully")
             except ImportError:
                 self.client = None
                 self.provider = None
+                logger.error("Failed to import openai library")
         else:
             self.client = None
             self.provider = None
+            logger.warning(f"Unknown LLM provider: {LLM_PROVIDER}")
     
     def _call_llm(self, messages: List[Dict[str, str]], system: str = None) -> str:
         """Call the LLM with the given messages."""
+        logger.info(f"=== CALLING LLM ===")
+        logger.info(f"Provider: {self.provider}, Model: {LLM_MODEL}")
+        logger.info(f"Message count: {len(messages)}")
+        
         if not self.client:
+            logger.error("LLM client not configured")
             return "LLM not configured. Please set up your API keys in the .env file."
         
         system_prompt = system or self.SYSTEM_PROMPT
         
         try:
             if self.provider == "anthropic":
+                logger.info("Sending request to Anthropic...")
                 response = self.client.messages.create(
                     model=LLM_MODEL,
                     system=system_prompt,
                     messages=messages,
                 )
-                return response.content[0].text
+                result = response.content[0].text
+                logger.info(f"Anthropic response received ({len(result)} chars)")
+                return result
             
             elif self.provider == "openai":
+                logger.info("Sending request to OpenAI...")
                 full_messages = [{"role": "system", "content": system_prompt}] + messages
                 response = self.client.chat.completions.create(
                     model=LLM_MODEL,
                     messages=full_messages,
                 )
-                return response.choices[0].message.content
+                result = response.choices[0].message.content
+                logger.info(f"OpenAI response received ({len(result)} chars)")
+                return result
             
         except Exception as e:
+            logger.error(f"LLM call failed: {e}")
             return f"Error calling LLM: {str(e)}"
     
     def chat(self, user_message: str, calendar_context: str = "") -> str:
         """Process a chat message and return a response."""
+        logger.info(f"=== CHAT REQUEST ===")
+        logger.info(f"User message: {user_message[:100]}{'...' if len(user_message) > 100 else ''}")
+        logger.info(f"Has calendar context: {bool(calendar_context)}")
+        
         # Build context
         kb_context = self.knowledge_base.get_knowledge_base()
+        logger.info(f"Knowledge base loaded ({len(kb_context)} chars)")
         
         context = f"""
 Current date/time: {datetime.now(pytz.timezone(TIMEZONE)).strftime('%A, %B %d, %Y at %I:%M %p')}
@@ -113,6 +144,7 @@ User's Knowledge Base:
         
         # Add user message to history
         self.conversation_history.append({"role": "user", "content": user_message})
+        logger.info(f"Conversation history: {len(self.conversation_history)} messages")
         
         # Build messages with context
         messages = [
@@ -125,6 +157,7 @@ User's Knowledge Base:
         
         # Add to history
         self.conversation_history.append({"role": "assistant", "content": response})
+        logger.info(f"Chat response generated ({len(response)} chars)")
         
         return response
     
