@@ -77,6 +77,16 @@ def exchange_code_for_tokens(code: str) -> Optional[dict]:
 def get_credentials_from_tokens(token_data: dict) -> Optional[Credentials]:
     """Create Credentials object from stored token data."""
     try:
+        from datetime import datetime
+        
+        # Parse expiry if present
+        expiry = None
+        if token_data.get("expiry"):
+            try:
+                expiry = datetime.fromisoformat(token_data["expiry"].replace("Z", "+00:00"))
+            except (ValueError, AttributeError):
+                pass
+        
         credentials = Credentials(
             token=token_data.get("token"),
             refresh_token=token_data.get("refresh_token"),
@@ -84,11 +94,16 @@ def get_credentials_from_tokens(token_data: dict) -> Optional[Credentials]:
             client_id=token_data.get("client_id", GOOGLE_CLIENT_ID),
             client_secret=token_data.get("client_secret", GOOGLE_CLIENT_SECRET),
             scopes=token_data.get("scopes", GOOGLE_SCOPES),
+            expiry=expiry,
         )
         
-        # Refresh if expired
-        if credentials.expired and credentials.refresh_token:
-            credentials.refresh(Request())
+        # Always try to refresh if we have a refresh token and token might be expired
+        if credentials.refresh_token:
+            try:
+                credentials.refresh(Request())
+            except Exception:
+                # If refresh fails, the token might still be valid
+                pass
         
         return credentials
     except Exception as e:
@@ -107,6 +122,11 @@ def save_user_tokens(user_email: str, token_data: dict):
     
     with open(token_file, "w") as f:
         json.dump(token_data, f)
+    
+    # Also save as the "last user" for session restoration
+    last_user_file = tokens_dir / "last_user.txt"
+    with open(last_user_file, "w") as f:
+        f.write(user_email)
 
 
 def load_user_tokens(user_email: str) -> Optional[dict]:
@@ -119,6 +139,26 @@ def load_user_tokens(user_email: str) -> Optional[dict]:
         with open(token_file, "r") as f:
             return json.load(f)
     return None
+
+
+def get_last_logged_in_user() -> Optional[str]:
+    """Get the email of the last logged in user."""
+    tokens_dir = DATA_DIR / "tokens"
+    last_user_file = tokens_dir / "last_user.txt"
+    
+    if last_user_file.exists():
+        with open(last_user_file, "r") as f:
+            return f.read().strip()
+    return None
+
+
+def clear_last_logged_in_user():
+    """Clear the last logged in user (on logout)."""
+    tokens_dir = DATA_DIR / "tokens"
+    last_user_file = tokens_dir / "last_user.txt"
+    
+    if last_user_file.exists():
+        last_user_file.unlink()
 
 
 def get_user_info(credentials: Credentials) -> Optional[dict]:
@@ -171,6 +211,23 @@ def check_authentication() -> bool:
     if handle_oauth_callback():
         return True
     
+    # Try to restore session from saved tokens
+    last_user = get_last_logged_in_user()
+    if last_user:
+        token_data = load_user_tokens(last_user)
+        if token_data:
+            credentials = get_credentials_from_tokens(token_data)
+            if credentials:
+                # Try to get user info to verify credentials still work
+                user_info = get_user_info(credentials)
+                if user_info:
+                    # Restore session
+                    st.session_state["google_credentials"] = token_data
+                    st.session_state["user_info"] = user_info
+                    st.session_state["user_email"] = user_info.get("email")
+                    st.session_state["authenticated"] = True
+                    return True
+    
     return False
 
 
@@ -180,3 +237,6 @@ def logout():
     for key in keys_to_clear:
         if key in st.session_state:
             del st.session_state[key]
+    
+    # Clear persistent login
+    clear_last_logged_in_user()

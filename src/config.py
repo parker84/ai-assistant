@@ -32,7 +32,7 @@ LLM_PROVIDER = os.getenv("LLM_PROVIDER", "anthropic")  # "anthropic" or "openai"
 LLM_MODEL = os.getenv("LLM_MODEL", "claude-sonnet-4-20250514")
 
 # App settings
-APP_NAME = "AI Assistant"
+APP_NAME = "Auto"
 TIMEZONE = os.getenv("TIMEZONE", "America/Toronto")
 
 # Database

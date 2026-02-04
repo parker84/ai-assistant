@@ -25,7 +25,7 @@ from src.assistant import AIAssistant
 # Page config
 st.set_page_config(
     page_title=APP_NAME,
-    page_icon="🤖",
+    page_icon="🦾",
     layout="wide",
     initial_sidebar_state="expanded",
 )
@@ -179,8 +179,8 @@ def init_session_state():
 
 def render_login_page():
     """Render the login page."""
-    st.title(f"🤖 {APP_NAME}")
-    st.markdown("### Your Personal AI Assistant")
+    st.title(f"🦾 {APP_NAME}")
+    st.markdown("### Your AI Assistant to automate your life")
     
     st.markdown("""
     Welcome! This assistant helps you:
@@ -228,7 +228,7 @@ def render_sidebar():
         # Navigation
         page = st.radio(
             "Navigation",
-            ["🦾 Auto", "📅 Calendar", "🧠 Knowledge Base", "📊 Daily Brief", "⚙️ Settings"],
+            ["🦾 Auto", "🧠 Knowledge Base", "📊 Daily Brief"],
             label_visibility="collapsed",
         )
         
@@ -508,125 +508,32 @@ def render_knowledge_base_page():
     """Render the knowledge base management page."""
     st.title("🧠 Knowledge Base")
     
-    st.markdown("""
-    Your knowledge base stores personal information, reminders, and context that helps the assistant 
-    provide better, more personalized responses.
-    """)
-    
     if not st.session_state.knowledge_base:
         st.warning("Knowledge base not initialized.")
         return
     
     kb = st.session_state.knowledge_base
     
-    tab1, tab2, tab3 = st.tabs(["📝 Edit Knowledge Base", "⏰ Reminders", "🔍 Search"])
+    current_content = kb.get_knowledge_base()
     
-    with tab1:
-        st.subheader("Edit Your Knowledge Base")
-        
-        current_content = kb.get_knowledge_base()
-        
-        new_content = st.text_area(
-            "Knowledge Base Content (Markdown)",
-            value=current_content,
-            height=500,
-            help="Edit your knowledge base. Use markdown formatting.",
-        )
-        
-        col1, col2 = st.columns(2)
-        with col1:
-            if st.button("💾 Save Changes", use_container_width=True):
-                if kb.update_knowledge_base(new_content):
-                    st.success("Knowledge base updated!")
-                else:
-                    st.error("Failed to update knowledge base.")
-        with col2:
-            if st.button("🔄 Reset to Template", use_container_width=True):
-                kb._init_knowledge_base()
-                st.rerun()
-        
-        st.divider()
-        
-        # Quick add section
-        st.subheader("Quick Add")
-        
-        col1, col2 = st.columns([1, 2])
-        with col1:
-            section = st.selectbox(
-                "Section",
-                ["About Me", "Important People", "Work Context", "Preferences", "Custom Reminders", "Notes"],
-            )
-        with col2:
-            new_item = st.text_input("Content to add")
-        
-        if st.button("➕ Add to Section"):
-            if new_item:
-                if kb.append_to_knowledge_base(section, f"\n- {new_item}"):
-                    st.success(f"Added to {section}!")
-                    st.rerun()
-                else:
-                    st.error("Failed to add content.")
+    new_content = st.text_area(
+        "Edit your knowledge base (Markdown)",
+        value=current_content,
+        height=500,
+        label_visibility="collapsed",
+    )
     
-    with tab2:
-        st.subheader("Manage Reminders")
-        
-        reminders = kb.get_reminders()
-        
-        # Add new reminder
-        with st.expander("➕ Add New Reminder", expanded=True):
-            reminder_text = st.text_input("Reminder text")
-            reminder_type = st.selectbox("Type", ["daily", "recurring", "one_time"])
-            
-            if st.button("Add Reminder"):
-                if reminder_text:
-                    if kb.add_reminder(reminder_text, reminder_type):
-                        st.success("Reminder added!")
-                        st.rerun()
-        
-        # Display reminders
-        st.divider()
-        
-        col1, col2, col3 = st.columns(3)
-        
-        with col1:
-            st.markdown("**Daily Reminders**")
-            for r in reminders.get("daily_reminders", []):
-                st.markdown(f"• {r['text']}")
-                if st.button(f"🗑️", key=f"del_daily_{r['id']}"):
-                    kb.remove_reminder(r["id"])
-                    st.rerun()
-        
-        with col2:
-            st.markdown("**Recurring Reminders**")
-            for r in reminders.get("recurring_reminders", []):
-                st.markdown(f"• {r['text']}")
-                if st.button(f"🗑️", key=f"del_recurring_{r['id']}"):
-                    kb.remove_reminder(r["id"])
-                    st.rerun()
-        
-        with col3:
-            st.markdown("**One-time Reminders**")
-            for r in reminders.get("one_time_reminders", []):
-                st.markdown(f"• {r['text']}")
-                if st.button(f"🗑️", key=f"del_onetime_{r['id']}"):
-                    kb.remove_reminder(r["id"])
-                    st.rerun()
-    
-    with tab3:
-        st.subheader("Search Knowledge Base")
-        
-        query = st.text_input("Search for...")
-        
-        if query:
-            results = kb.search_knowledge_base(query)
-            
-            if results:
-                st.markdown(f"**Found {len(results)} result(s):**")
-                for i, result in enumerate(results):
-                    with st.expander(f"Result {i + 1}"):
-                        st.markdown(result)
+    col1, col2 = st.columns(2)
+    with col1:
+        if st.button("💾 Save", use_container_width=True):
+            if kb.update_knowledge_base(new_content):
+                st.success("Saved!")
             else:
-                st.info("No results found.")
+                st.error("Failed to save.")
+    with col2:
+        if st.button("🔄 Reset to Template", use_container_width=True):
+            kb._init_knowledge_base()
+            st.rerun()
 
 
 def render_daily_brief_page():
@@ -637,75 +544,41 @@ def render_daily_brief_page():
     if st.session_state.get("google_credentials"):
         credentials = get_credentials_from_tokens(st.session_state["google_credentials"])
     
-    col1, col2 = st.columns([2, 1])
+    # Auto-generate brief on first load if not already generated
+    if "daily_brief" not in st.session_state or not st.session_state.get("daily_brief"):
+        with st.spinner("Generating your daily brief..."):
+            try:
+                events = []
+                if credentials:
+                    events = get_todays_events(credentials)
+                
+                if st.session_state.assistant:
+                    brief = st.session_state.assistant.generate_daily_brief(events)
+                    st.session_state["daily_brief"] = brief
+                else:
+                    st.session_state["daily_brief"] = "Assistant not configured. Please check your API keys."
+            except Exception as e:
+                st.session_state["daily_brief"] = f"Error generating brief: {e}"
     
-    with col1:
-        if st.button("🔄 Generate Today's Brief", use_container_width=True):
-            with st.spinner("Generating your daily brief..."):
-                try:
-                    events = []
-                    if credentials:
-                        events = get_todays_events(credentials)
-                    
-                    if st.session_state.assistant:
-                        brief = st.session_state.assistant.generate_daily_brief(events)
-                        st.session_state["daily_brief"] = brief
-                    else:
-                        st.error("Assistant not configured. Please check your API keys.")
-                except Exception as e:
-                    st.error(f"Error generating brief: {e}")
-    
-    with col2:
-        if st.button("📋 Analyze My Calendar", use_container_width=True):
-            with st.spinner("Analyzing your calendar..."):
-                try:
-                    if credentials:
-                        events = get_upcoming_events(credentials, days=7)
-                        
-                        if st.session_state.assistant:
-                            analysis = st.session_state.assistant.analyze_calendar(events)
-                            st.session_state["calendar_analysis"] = analysis
-                        else:
-                            st.error("Assistant not configured.")
-                    else:
-                        st.warning("Please authenticate with Google to analyze your calendar.")
-                except Exception as e:
-                    st.error(f"Error analyzing calendar: {e}")
+    # Display the brief
+    st.markdown(st.session_state.get("daily_brief", ""))
     
     st.divider()
     
-    # Display daily brief
-    if st.session_state.get("daily_brief"):
-        st.markdown("### Today's Brief")
-        st.markdown(f'<div class="daily-brief">{st.session_state["daily_brief"]}</div>', unsafe_allow_html=True)
-    
-    # Display calendar analysis
-    if st.session_state.get("calendar_analysis"):
-        st.markdown("### Calendar Analysis")
-        st.markdown(st.session_state["calendar_analysis"])
-    
-    # Show today's events
-    if credentials:
-        st.divider()
-        st.markdown("### Today's Calendar Events")
-        
-        try:
-            events = get_todays_events(credentials)
-            
-            if events:
-                for event in events:
-                    start = event.get("start", {})
-                    if "dateTime" in start:
-                        event_time = datetime.fromisoformat(start["dateTime"].replace("Z", "+00:00"))
-                        time_str = event_time.strftime("%I:%M %p")
-                    else:
-                        time_str = "All day"
-                    
-                    st.markdown(f'<div class="calendar-event">🕐 {time_str} - **{event.get("summary", "No title")}**</div>', unsafe_allow_html=True)
-            else:
-                st.info("No events scheduled for today.")
-        except Exception as e:
-            st.error(f"Error loading events: {e}")
+    # Regenerate button
+    if st.button("🔄 Regenerate", use_container_width=True):
+        with st.spinner("Regenerating..."):
+            try:
+                events = []
+                if credentials:
+                    events = get_todays_events(credentials)
+                
+                if st.session_state.assistant:
+                    brief = st.session_state.assistant.generate_daily_brief(events)
+                    st.session_state["daily_brief"] = brief
+                    st.rerun()
+            except Exception as e:
+                st.error(f"Error: {e}")
 
 
 def render_settings_page():
@@ -778,14 +651,10 @@ def main():
     # Render selected page
     if page == "🦾 Auto":
         render_chat_page()
-    elif page == "📅 Calendar":
-        render_calendar_page()
     elif page == "🧠 Knowledge Base":
         render_knowledge_base_page()
     elif page == "📊 Daily Brief":
         render_daily_brief_page()
-    elif page == "⚙️ Settings":
-        render_settings_page()
 
 
 if __name__ == "__main__":
