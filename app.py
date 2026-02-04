@@ -30,6 +30,142 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
+# Cyberpunk CSS
+st.markdown("""
+<style>
+    @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;500;700;900&family=Space+Mono:wght@400;700&family=Inter:wght@300;400;500;600&display=swap');
+    
+    .stApp {
+        background: linear-gradient(135deg, #0a0a0f 0%, #0f1419 50%, #0a0f14 100%);
+    }
+    
+    /* Headers */
+    h1 {
+        font-family: 'Orbitron', monospace !important;
+        color: #00ffcc !important;
+        text-shadow: 0 0 20px rgba(0, 255, 204, 0.5);
+        letter-spacing: 2px;
+    }
+    
+    h2, h3 {
+        font-family: 'Space Mono', monospace !important;
+        color: #00d4aa !important;
+    }
+    
+    /* Sidebar */
+    [data-testid="stSidebar"] {
+        background: linear-gradient(180deg, #0f1419 0%, #1a1f2e 100%);
+        border-right: 1px solid rgba(0, 255, 204, 0.2);
+    }
+    
+    [data-testid="stSidebar"] .stMarkdown {
+        font-family: 'Space Mono', monospace;
+    }
+    
+    /* Chat messages */
+    [data-testid="stChatMessage"] {
+        background: rgba(15, 20, 30, 0.8);
+        border: 1px solid rgba(0, 255, 204, 0.15);
+        border-radius: 12px;
+        backdrop-filter: blur(10px);
+    }
+    
+    /* Buttons */
+    .stButton > button {
+        font-family: 'Space Mono', monospace;
+        background: linear-gradient(135deg, rgba(0, 255, 204, 0.1) 0%, rgba(0, 212, 170, 0.2) 100%);
+        border: 1px solid rgba(0, 255, 204, 0.4);
+        color: #00ffcc;
+        transition: all 0.3s ease;
+    }
+    
+    .stButton > button:hover {
+        background: linear-gradient(135deg, rgba(0, 255, 204, 0.2) 0%, rgba(0, 212, 170, 0.3) 100%);
+        border-color: #00ffcc;
+        box-shadow: 0 0 20px rgba(0, 255, 204, 0.3);
+    }
+    
+    /* Input fields */
+    .stTextInput > div > div > input,
+    .stTextArea > div > div > textarea {
+        background: rgba(15, 20, 30, 0.8);
+        border: 1px solid rgba(0, 255, 204, 0.3);
+        color: #e0e0e0;
+        font-family: 'Inter', sans-serif;
+    }
+    
+    .stTextInput > div > div > input:focus,
+    .stTextArea > div > div > textarea:focus {
+        border-color: #00ffcc;
+        box-shadow: 0 0 10px rgba(0, 255, 204, 0.2);
+    }
+    
+    /* Chat input */
+    [data-testid="stChatInput"] {
+        background: rgba(15, 20, 30, 0.9);
+        border: 1px solid rgba(0, 255, 204, 0.3);
+    }
+    
+    /* Tabs */
+    .stTabs [data-baseweb="tab-list"] {
+        gap: 8px;
+    }
+    
+    .stTabs [data-baseweb="tab"] {
+        font-family: 'Space Mono', monospace;
+        background: rgba(0, 255, 204, 0.05);
+        border: 1px solid rgba(0, 255, 204, 0.2);
+        border-radius: 8px;
+        color: #8892b0;
+    }
+    
+    .stTabs [aria-selected="true"] {
+        background: rgba(0, 255, 204, 0.15);
+        border-color: #00ffcc;
+        color: #00ffcc;
+    }
+    
+    /* Metrics */
+    [data-testid="stMetricValue"] {
+        font-family: 'Orbitron', monospace !important;
+        color: #00ffcc !important;
+    }
+    
+    /* Divider */
+    hr {
+        border-color: rgba(0, 255, 204, 0.2);
+    }
+    
+    /* Radio buttons in sidebar */
+    .stRadio > label {
+        font-family: 'Space Mono', monospace;
+    }
+    
+    /* Custom classes */
+    .cyber-title {
+        font-family: 'Orbitron', monospace;
+        color: #00ffcc;
+        text-shadow: 0 0 30px rgba(0, 255, 204, 0.6);
+        font-size: 2.5rem;
+        letter-spacing: 4px;
+    }
+    
+    .cyber-subtitle {
+        font-family: 'Space Mono', monospace;
+        color: #8892b0;
+        letter-spacing: 2px;
+    }
+    
+    .glow-box {
+        background: rgba(0, 255, 204, 0.05);
+        border: 1px solid rgba(0, 255, 204, 0.3);
+        border-radius: 12px;
+        padding: 1.5rem;
+        box-shadow: 0 0 30px rgba(0, 255, 204, 0.1);
+    }
+</style>
+""", unsafe_allow_html=True)
+
 
 def init_session_state():
     """Initialize session state variables."""
@@ -92,7 +228,7 @@ def render_sidebar():
         # Navigation
         page = st.radio(
             "Navigation",
-            ["💬 Chat", "📅 Calendar", "🧠 Knowledge Base", "📊 Daily Brief", "⚙️ Settings"],
+            ["🦾 Auto", "📅 Calendar", "🧠 Knowledge Base", "📊 Daily Brief", "⚙️ Settings"],
             label_visibility="collapsed",
         )
         
@@ -107,7 +243,8 @@ def render_sidebar():
 
 def render_chat_page():
     """Render the chat interface."""
-    st.title("💬 Chat with Assistant")
+    st.title("🦾 Auto")
+    st.caption("Your AI Assistant to automate your life.")
     
     # Get credentials and calendar context
     credentials = None
@@ -121,28 +258,63 @@ def render_chat_page():
             except Exception as e:
                 st.warning(f"Could not load calendar: {e}")
     
-    # Display chat history
-    for message in st.session_state.messages:
-        with st.chat_message(message["role"]):
+    # Check if there's a pending message that needs a response (from button clicks)
+    pending_prompt = None
+    if st.session_state.messages and st.session_state.messages[-1]["role"] == "user":
+        if not st.session_state.get("last_processed_message"):
+            st.session_state["last_processed_message"] = None
+        
+        last_user_msg = st.session_state.messages[-1]["content"]
+        if st.session_state["last_processed_message"] != last_user_msg:
+            pending_prompt = last_user_msg
+    
+    # Display chat history (except pending message which we'll show with response)
+    messages_to_display = st.session_state.messages
+    if pending_prompt:
+        messages_to_display = st.session_state.messages[:-1]
+    
+    for message in messages_to_display:
+        avatar = "💁‍♀️" if message["role"] == "user" else "🤖"
+        with st.chat_message(message["role"], avatar=avatar):
             st.markdown(message["content"])
+    
+    # Process pending message from button click
+    if pending_prompt:
+        with st.chat_message("user", avatar="💁‍♀️"):
+            st.markdown(pending_prompt)
+        
+        with st.chat_message("assistant", avatar="🤖"):
+            with st.spinner("Thinking..."):
+                if st.session_state.assistant:
+                    kb_update = st.session_state.assistant.update_knowledge_from_chat(pending_prompt)
+                    if kb_update:
+                        st.info(kb_update)
+                    
+                    response = st.session_state.assistant.chat(pending_prompt, calendar_context)
+                else:
+                    response = "Assistant not initialized. Please check your API keys."
+                
+                st.markdown(response)
+                st.session_state.messages.append({"role": "assistant", "content": response})
+                st.session_state["last_processed_message"] = pending_prompt
     
     # Chat input
     if prompt := st.chat_input("Ask me anything..."):
         # Add user message
         st.session_state.messages.append({"role": "user", "content": prompt})
-        with st.chat_message("user"):
+        st.session_state["last_processed_message"] = prompt
+        
+        with st.chat_message("user", avatar="💁‍♀️"):
             st.markdown(prompt)
         
         # Get assistant response
-        with st.chat_message("assistant"):
+        with st.chat_message("assistant", avatar="🤖"):
             with st.spinner("Thinking..."):
                 if st.session_state.assistant:
-                    # Check if this should update knowledge base
                     kb_update = st.session_state.assistant.update_knowledge_from_chat(prompt)
                     if kb_update:
                         st.info(kb_update)
                     
-                    # Get response
                     response = st.session_state.assistant.chat(prompt, calendar_context)
                 else:
                     response = "Assistant not initialized. Please check your API keys."
@@ -164,6 +336,7 @@ def render_chat_page():
     with col3:
         if st.button("🗑️ Clear Chat", use_container_width=True):
             st.session_state.messages = []
+            st.session_state["last_processed_message"] = None
             if st.session_state.assistant:
                 st.session_state.assistant.clear_conversation()
             st.rerun()
@@ -603,7 +776,7 @@ def main():
     page = render_sidebar()
     
     # Render selected page
-    if page == "💬 Chat":
+    if page == "🦾 Auto":
         render_chat_page()
     elif page == "📅 Calendar":
         render_calendar_page()
