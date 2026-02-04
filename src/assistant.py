@@ -1,345 +1,279 @@
-"""AI Assistant core logic with LLM integration."""
-import os
-from datetime import datetime, timedelta
-from typing import Optional, List, Dict, Any
+"""AI Assistant using Agno framework."""
+from textwrap import dedent
+from typing import Optional
+from datetime import datetime
 import pytz
+from agno.db.postgres import PostgresDb
+from decouple import config
+from agno.agent import Agent
+from agno.models.openai import OpenAIChat
+from agno.models.anthropic import Claude
 
 from src.config import (
-    ANTHROPIC_API_KEY,
-    OPENAI_API_KEY,
     LLM_PROVIDER,
     LLM_MODEL,
     TIMEZONE,
 )
 from src.knowledge_base import KnowledgeBase
 from src.logging_utils import get_logger
+from src.tools import (
+    set_credentials,
+    get_todays_events,
+    get_upcoming_events,
+    find_free_time_slots,
+    create_calendar_event,
+    create_birthday_reminder,
+    schedule_interview,
+    delete_calendar_event,
+)
 
 logger = get_logger(__name__)
 
+# Agent configuration
+MAX_TOOL_CALLS = 5
+NUM_HISTORY_RUNS = 10
+
+
+def get_llm_model():
+    """Get the configured LLM model based on provider."""
+    logger.info(f"Initializing LLM: {LLM_PROVIDER}/{LLM_MODEL}")
+    
+    if LLM_PROVIDER == "openai":
+        return OpenAIChat(id=LLM_MODEL)
+    elif LLM_PROVIDER == "anthropic":
+        return Claude(id=LLM_MODEL)
+    else:
+        # Default to OpenAI
+        logger.warning(f"Unknown provider {LLM_PROVIDER}, defaulting to OpenAI")
+        return OpenAIChat(id="gpt-4o-mini")
+
+# ------------database / storage / setup
+db_url = f"postgresql+psycopg://{config('POSTGRES_USER')}:{config('POSTGRES_PASSWORD')}@{config('POSTGRES_HOST')}/{config('POSTGRES_DB')}"
+
+team_storage = PostgresDb(
+    db_url=db_url
+)
+
+ASSISTANT_INSTRUCTIONS = dedent("""
+    You are a helpful personal AI assistant that helps users manage their calendar and stay organized.
+    
+    You have access to the user's Google Calendar through various tools. Use them to:
+    - View today's events and upcoming schedule
+    - Create new events, meetings, and reminders
+    - Schedule interviews with multiple participants
+    - Add birthday reminders that recur yearly
+    - Find available time slots for scheduling
+    
+    IMPORTANT GUIDELINES:
+    
+    1. **Before creating events**: Always confirm the details with the user first.
+       - Ask for missing information (date, time, duration)
+       - Clarify ambiguous requests
+    
+    2. **Date/Time handling**: 
+       - When the user says "tomorrow", "next Monday", etc., calculate the actual date
+       - Use 24-hour format (HH:MM) for the tools
+       - Default duration is 60 minutes unless specified
+    
+    3. **Be helpful and proactive**:
+       - If the user's calendar looks busy, mention it
+       - Suggest optimal times based on their schedule
+       - Remind them of potential conflicts
+    
+    4. **Knowledge Base**:
+       - Reference the user's knowledge base for context about important people, preferences
+       - Use this context to personalize your responses
+    
+    5. **Response format**:
+       - Be concise but friendly
+       - Use emojis sparingly for visual clarity
+       - When showing calendar info, format it nicely
+""")
+
 
 class AIAssistant:
-    """Main AI Assistant class that orchestrates all functionality."""
+    """Agno-powered AI Assistant for calendar and task management."""
     
-    SYSTEM_PROMPT = """You are a helpful personal AI assistant. You help the user manage their calendar, 
-remember important things, and stay organized.
-
-You have access to:
-1. The user's Google Calendar - you can view events and help add new ones
-2. The user's Knowledge Base - personal information, preferences, and custom reminders
-3. The ability to set reminders and provide daily briefs
-
-When helping with calendar tasks:
-- Be specific about dates and times
-- Confirm details before creating events
-- Suggest optimal times when scheduling meetings
-
-When generating daily briefs:
-- Summarize today's calendar events
-- Include relevant reminders from the knowledge base
-- Be concise but comprehensive
-- Use a friendly, personal tone
-
-When the user wants to add something to their knowledge base:
-- Help them organize the information
-- Suggest which section it belongs in
-- Confirm the addition
-
-Always be helpful, proactive, and personable. Remember context from the conversation."""
-
-    def __init__(self, user_email: str):
+    def __init__(self, user_email: str, credentials=None):
         """Initialize the assistant for a user."""
-        logger.info(f"=== INITIALIZING AI ASSISTANT ===")
+        logger.info(f"=== INITIALIZING AGNO ASSISTANT ===")
         logger.info(f"User: {user_email}")
         
         self.user_email = user_email
         self.knowledge_base = KnowledgeBase(user_email)
-        self.conversation_history: List[Dict[str, str]] = []
         
-        # Initialize LLM client
-        logger.info(f"LLM Provider: {LLM_PROVIDER}")
-        logger.info(f"LLM Model: {LLM_MODEL}")
+        # Set credentials for calendar tools
+        if credentials:
+            set_credentials(credentials)
+            logger.info("Calendar credentials configured")
         
-        if LLM_PROVIDER == "anthropic":
-            try:
-                import anthropic
-                self.client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
-                self.provider = "anthropic"
-                logger.info("Anthropic client initialized successfully")
-            except ImportError:
-                self.client = None
-                self.provider = None
-                logger.error("Failed to import anthropic library")
-        elif LLM_PROVIDER == "openai":
-            try:
-                from openai import OpenAI
-                self.client = OpenAI(api_key=OPENAI_API_KEY)
-                self.provider = "openai"
-                logger.info("OpenAI client initialized successfully")
-            except ImportError:
-                self.client = None
-                self.provider = None
-                logger.error("Failed to import openai library")
-        else:
-            self.client = None
-            self.provider = None
-            logger.warning(f"Unknown LLM provider: {LLM_PROVIDER}")
+        # Build additional context from knowledge base
+        kb_content = self.knowledge_base.get_knowledge_base()
+        
+        additional_context = dedent(f"""
+            Current date/time: {datetime.now(pytz.timezone(TIMEZONE)).strftime('%A, %B %d, %Y at %I:%M %p')}
+            Timezone: {TIMEZONE}
+            
+            User's Knowledge Base:
+            {kb_content if kb_content else "No knowledge base entries yet."}
+        """)
+        
+        # Create the Agno agent
+        self.agent = Agent(
+            name="Auto Assistant",
+            model=get_llm_model(),
+            tools=[
+                get_todays_events,
+                get_upcoming_events,
+                find_free_time_slots,
+                create_calendar_event,
+                create_birthday_reminder,
+                schedule_interview,
+                delete_calendar_event,
+            ],
+            instructions=ASSISTANT_INSTRUCTIONS,
+            additional_context=additional_context,
+            markdown=True,
+            debug_mode=True,  # Enable Agno debug logging
+            add_datetime_to_context=True,
+            tool_call_limit=MAX_TOOL_CALLS,
+            # Memory - keep conversation history
+            add_history_to_context=True,
+            num_history_runs=NUM_HISTORY_RUNS,
+            db=team_storage,
+        )
+        
+        logger.info(f"Agno agent initialized with {len(self.agent.tools)} tools")
     
-    def _call_llm(self, messages: List[Dict[str, str]], system: str = None) -> str:
-        """Call the LLM with the given messages."""
-        logger.info(f"=== CALLING LLM ===")
-        logger.info(f"Provider: {self.provider}, Model: {LLM_MODEL}")
-        logger.info(f"Message count: {len(messages)}")
-        
-        if not self.client:
-            logger.error("LLM client not configured")
-            return "LLM not configured. Please set up your API keys in the .env file."
-        
-        system_prompt = system or self.SYSTEM_PROMPT
-        
-        try:
-            if self.provider == "anthropic":
-                logger.info("Sending request to Anthropic...")
-                response = self.client.messages.create(
-                    model=LLM_MODEL,
-                    system=system_prompt,
-                    messages=messages,
-                )
-                result = response.content[0].text
-                logger.info(f"Anthropic response received ({len(result)} chars)")
-                return result
-            
-            elif self.provider == "openai":
-                logger.info("Sending request to OpenAI...")
-                full_messages = [{"role": "system", "content": system_prompt}] + messages
-                response = self.client.chat.completions.create(
-                    model=LLM_MODEL,
-                    messages=full_messages,
-                )
-                result = response.choices[0].message.content
-                logger.info(f"OpenAI response received ({len(result)} chars)")
-                return result
-            
-        except Exception as e:
-            logger.error(f"LLM call failed: {e}")
-            return f"Error calling LLM: {str(e)}"
+    def update_credentials(self, credentials):
+        """Update the calendar credentials."""
+        set_credentials(credentials)
+        logger.info("Calendar credentials updated")
     
     def chat(self, user_message: str, calendar_context: str = "") -> str:
         """Process a chat message and return a response."""
         logger.info(f"=== CHAT REQUEST ===")
         logger.info(f"User message: {user_message[:100]}{'...' if len(user_message) > 100 else ''}")
-        logger.info(f"Has calendar context: {bool(calendar_context)}")
         
-        # Build context
-        kb_context = self.knowledge_base.get_knowledge_base()
-        logger.info(f"Knowledge base loaded ({len(kb_context)} chars)")
-        
-        context = f"""
-Current date/time: {datetime.now(pytz.timezone(TIMEZONE)).strftime('%A, %B %d, %Y at %I:%M %p')}
-
-User's Knowledge Base:
-{kb_context}
-
-{f"User's Calendar Context:{chr(10)}{calendar_context}" if calendar_context else ""}
-"""
-        
-        # Add user message to history
-        self.conversation_history.append({"role": "user", "content": user_message})
-        logger.info(f"Conversation history: {len(self.conversation_history)} messages")
-        
-        # Build messages with context
-        messages = [
-            {"role": "user", "content": f"Context:\n{context}"},
-            {"role": "assistant", "content": "I understand the context. I'm ready to help."},
-        ] + self.conversation_history
-        
-        # Get response
-        response = self._call_llm(messages)
-        
-        # Add to history
-        self.conversation_history.append({"role": "assistant", "content": response})
-        logger.info(f"Chat response generated ({len(response)} chars)")
-        
-        return response
-    
-    def generate_daily_brief(self, calendar_events: List[Dict[str, Any]]) -> str:
-        """Generate a daily brief based on calendar and knowledge base."""
-        tz = pytz.timezone(TIMEZONE)
-        today = datetime.now(tz)
-        
-        # Format calendar events
-        events_text = ""
-        if calendar_events:
-            events_text = "Today's Calendar Events:\n"
-            for event in calendar_events:
-                start = event.get("start", {})
-                if "dateTime" in start:
-                    event_time = datetime.fromisoformat(start["dateTime"].replace("Z", "+00:00"))
-                    time_str = event_time.strftime("%I:%M %p")
-                else:
-                    time_str = "All day"
-                
-                summary = event.get("summary", "No title")
-                events_text += f"- {time_str}: {summary}\n"
-        else:
-            events_text = "No calendar events today.\n"
-        
-        # Get knowledge base context
-        kb_context = self.knowledge_base.get_daily_brief_context()
-        
-        prompt = f"""Generate a concise, friendly daily brief for {today.strftime('%A, %B %d, %Y')}.
-
-{events_text}
-
-Knowledge Base and Reminders:
-{kb_context}
-
-Instructions:
-1. Start with a brief greeting appropriate for the time of day
-2. Summarize today's calendar events
-3. Include any relevant reminders from the knowledge base
-4. Mention any birthdays, anniversaries, or important dates coming up
-5. End with a motivational or helpful note
-6. Keep it concise but personal
-
-Generate the daily brief:"""
-
-        messages = [{"role": "user", "content": prompt}]
-        return self._call_llm(messages)
-    
-    def analyze_calendar(self, events: List[Dict[str, Any]], days: int = 7) -> str:
-        """Analyze calendar and provide suggestions for what might be missing."""
-        kb_context = self.knowledge_base.get_knowledge_base()
-        
-        # Format events
-        events_text = ""
-        for event in events:
-            start = event.get("start", {})
-            if "dateTime" in start:
-                event_date = datetime.fromisoformat(start["dateTime"].replace("Z", "+00:00"))
-                date_str = event_date.strftime("%B %d at %I:%M %p")
-            else:
-                date_str = start.get("date", "Unknown date")
-            
-            summary = event.get("summary", "No title")
-            events_text += f"- {date_str}: {summary}\n"
-        
-        prompt = f"""Analyze this calendar for the next {days} days and suggest what might be missing or could be improved.
-
-Calendar Events:
-{events_text if events_text else "No events scheduled"}
-
-User's Knowledge Base (context about their life, important people, work):
-{kb_context}
-
-Based on the knowledge base and calendar, please:
-1. Identify any important dates/events that might be missing (birthdays, anniversaries, etc.)
-2. Suggest any recurring events that should be scheduled
-3. Point out any potential scheduling conflicts or overly busy days
-4. Recommend time blocks for important activities mentioned in the knowledge base
-5. Highlight anything that seems like it might be forgotten
-
-Be specific and actionable in your suggestions."""
-
-        messages = [{"role": "user", "content": prompt}]
-        return self._call_llm(messages)
-    
-    def parse_calendar_request(self, request: str, calendar_context: str = "") -> Dict[str, Any]:
-        """Parse a natural language calendar request into structured data."""
-        tz = pytz.timezone(TIMEZONE)
-        today = datetime.now(tz)
-        
-        prompt = f"""Parse this calendar request and extract the relevant information.
-
-Current date/time: {today.strftime('%A, %B %d, %Y at %I:%M %p')}
-
-User's request: "{request}"
-
-{f"Current calendar context:{chr(10)}{calendar_context}" if calendar_context else ""}
-
-Extract the following information (if present) and return as JSON:
-{{
-    "action": "create" | "update" | "delete" | "query",
-    "event_type": "meeting" | "birthday" | "interview" | "reminder" | "other",
-    "summary": "event title",
-    "date": "YYYY-MM-DD",
-    "time": "HH:MM" (24-hour format),
-    "duration_minutes": number,
-    "is_recurring": boolean,
-    "recurrence_type": "daily" | "weekly" | "monthly" | "yearly" | null,
-    "attendees": ["email1", "email2"] or null,
-    "location": "location" or null,
-    "description": "description" or null,
-    "needs_clarification": boolean,
-    "clarification_question": "question to ask user" or null
-}}
-
-Return ONLY the JSON, no other text."""
-
-        messages = [{"role": "user", "content": prompt}]
-        response = self._call_llm(messages)
-        
-        # Try to parse JSON from response
         try:
-            import json
-            # Clean up response - find JSON in the response
-            response = response.strip()
-            if response.startswith("```"):
-                response = response.split("```")[1]
-                if response.startswith("json"):
-                    response = response[4:]
-            return json.loads(response)
+            # Run the agent synchronously
+            response = self.agent.run(user_message)
+            
+            result = response.content if response.content else "I couldn't generate a response."
+            logger.info(f"Chat response generated ({len(result)} chars)")
+            
+            return result
+            
         except Exception as e:
-            return {
-                "action": "query",
-                "needs_clarification": True,
-                "clarification_question": f"I couldn't understand that request. Could you please rephrase? Error: {str(e)}",
-            }
+            logger.error(f"Chat failed: {e}")
+            import traceback
+            logger.error(f"Traceback: {traceback.format_exc()}")
+            return f"I encountered an error: {str(e)}"
     
-    def update_knowledge_from_chat(self, user_message: str) -> Optional[str]:
-        """Determine if a message should update the knowledge base and extract the update."""
-        prompt = f"""Analyze this message and determine if the user wants to add or update their knowledge base/memory.
-
-User's message: "{user_message}"
-
-If the user wants to remember something or update their profile/preferences, extract:
-1. What section it belongs to (About Me, Important People, Work Context, Preferences, Custom Reminders, Notes)
-2. The information to add
-
-Return as JSON:
-{{
-    "should_update": boolean,
-    "section": "section name" or null,
-    "content": "formatted content to add" or null,
-    "response": "confirmation message to user"
-}}
-
-Return ONLY the JSON, no other text."""
-
-        messages = [{"role": "user", "content": prompt}]
-        response = self._call_llm(messages)
+    async def achat(self, user_message: str) -> str:
+        """Process a chat message asynchronously."""
+        logger.info(f"=== ASYNC CHAT REQUEST ===")
+        logger.info(f"User message: {user_message[:100]}{'...' if len(user_message) > 100 else ''}")
         
         try:
-            import json
-            response = response.strip()
-            if response.startswith("```"):
-                response = response.split("```")[1]
-                if response.startswith("json"):
-                    response = response[4:]
+            response = await self.agent.arun(user_message)
             
-            result = json.loads(response)
+            result = response.content if response.content else "I couldn't generate a response."
+            logger.info(f"Async chat response generated ({len(result)} chars)")
             
-            if result.get("should_update") and result.get("section") and result.get("content"):
-                success = self.knowledge_base.append_to_knowledge_base(
-                    result["section"],
-                    result["content"]
-                )
-                if success:
-                    return result.get("response", "I've added that to your knowledge base.")
+            return result
             
-            return None
-        except Exception:
-            return None
+        except Exception as e:
+            logger.error(f"Async chat failed: {e}")
+            return f"I encountered an error: {str(e)}"
+    
+    def generate_daily_brief(self, calendar_events=None) -> str:
+        """Generate a daily brief."""
+        logger.info("=== GENERATING DAILY BRIEF ===")
+        
+        tz = pytz.timezone(TIMEZONE)
+        today = datetime.now(tz)
+        
+        prompt = dedent(f"""
+            Generate a concise, friendly daily brief for {today.strftime('%A, %B %d, %Y')}.
+            
+            First, check my calendar for today's events using the get_todays_events tool.
+            
+            Then create a brief that:
+            1. Starts with an appropriate greeting for the time of day
+            2. Summarizes today's calendar events
+            3. Mentions any important reminders from my knowledge base
+            4. Notes any upcoming birthdays or important dates
+            5. Ends with a helpful or motivational note
+            
+            Keep it concise but personal.
+        """)
+        
+        return self.chat(prompt)
+    
+    def analyze_calendar(self, days: int = 7) -> str:
+        """Analyze the calendar and provide suggestions."""
+        logger.info(f"=== ANALYZING CALENDAR ({days} days) ===")
+        
+        prompt = dedent(f"""
+            Analyze my calendar for the next {days} days and provide insights.
+            
+            First, get my upcoming events using the get_upcoming_events tool.
+            
+            Then analyze and tell me:
+            1. Any potential scheduling conflicts or overly busy days
+            2. Important dates that might be missing (based on my knowledge base)
+            3. Suggestions for time blocking or better organization
+            4. Any gaps that could be used for focused work or self-care
+            
+            Be specific and actionable with your suggestions.
+        """)
+        
+        return self.chat(prompt)
     
     def clear_conversation(self):
         """Clear the conversation history."""
-        self.conversation_history = []
+        logger.info("Clearing conversation history")
+        # Create a new agent instance to reset history
+        self.agent = Agent(
+            name="Auto Assistant",
+            model=get_llm_model(),
+            tools=[
+                get_todays_events,
+                get_upcoming_events,
+                find_free_time_slots,
+                create_calendar_event,
+                create_birthday_reminder,
+                schedule_interview,
+                delete_calendar_event,
+            ],
+            instructions=ASSISTANT_INSTRUCTIONS,
+            markdown=True,
+            debug_mode=True,
+            add_datetime_to_context=True,
+            tool_call_limit=MAX_TOOL_CALLS,
+            add_history_to_context=True,
+            num_history_runs=NUM_HISTORY_RUNS,
+        )
+
+
+# Convenience function for CLI usage
+async def main():
+    """CLI interface for testing the assistant."""
+    print("🦾 Auto Assistant CLI")
+    print("Type 'exit' to quit.\n")
+    
+    assistant = AIAssistant(user_email="test@example.com")
+    
+    while True:
+        user_input = input("💁‍♀️ You: ")
+        if user_input.strip().lower() == "exit":
+            break
+        
+        response = await assistant.achat(user_input)
+        print(f"🤖 Auto: {response}\n")
+
+
+if __name__ == "__main__":
+    import asyncio
+    asyncio.run(main())

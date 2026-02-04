@@ -1,0 +1,520 @@
+"""Calendar tools for Agno agent."""
+from agno.tools import tool
+from datetime import datetime, timedelta
+from typing import List, Dict, Any, Optional
+import pytz
+
+from src.config import TIMEZONE
+from src.logging_utils import get_logger
+
+logger = get_logger(__name__)
+
+# Module-level credentials storage - set this before using tools
+_credentials = None
+
+
+def set_credentials(credentials):
+    """Set the Google credentials for calendar tools."""
+    global _credentials
+    _credentials = credentials
+    logger.info("Calendar credentials set")
+
+
+def get_credentials():
+    """Get the current Google credentials."""
+    global _credentials
+    if _credentials is None:
+        logger.error("Calendar credentials not set!")
+    return _credentials
+
+
+def _get_calendar_service():
+    """Build Google Calendar service."""
+    from googleapiclient.discovery import build
+    credentials = get_credentials()
+    if not credentials:
+        raise Exception("Google credentials not set. Please authenticate first.")
+    return build("calendar", "v3", credentials=credentials)
+
+
+# =========================
+# Calendar Query Tools
+# =========================
+
+@tool
+def get_todays_events() -> str:
+    """
+    Get all calendar events for today.
+    
+    WHEN TO USE:
+    - User asks "what's on my calendar today?"
+    - User wants to know their schedule for today
+    - You need to check today's events before scheduling something
+    
+    RETURNS:
+    - A formatted string listing all today's events with times
+    """
+    logger.info("=== GET TODAY'S EVENTS ===")
+    try:
+        service = _get_calendar_service()
+        tz = pytz.timezone(TIMEZONE)
+        
+        now = datetime.now(tz)
+        start_of_day = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        end_of_day = start_of_day + timedelta(days=1)
+        
+        events_result = service.events().list(
+            calendarId="primary",
+            timeMin=start_of_day.isoformat(),
+            timeMax=end_of_day.isoformat(),
+            singleEvents=True,
+            orderBy="startTime",
+        ).execute()
+        
+        events = events_result.get("items", [])
+        logger.info(f"Found {len(events)} events today")
+        
+        if not events:
+            return "No events scheduled for today."
+        
+        lines = ["📅 Today's Events:"]
+        for event in events:
+            start = event.get("start", {})
+            if "dateTime" in start:
+                event_time = datetime.fromisoformat(start["dateTime"].replace("Z", "+00:00"))
+                time_str = event_time.strftime("%I:%M %p")
+            else:
+                time_str = "All day"
+            
+            summary = event.get("summary", "No title")
+            location = event.get("location", "")
+            location_str = f" @ {location}" if location else ""
+            lines.append(f"• {time_str}: {summary}{location_str}")
+        
+        return "\n".join(lines)
+        
+    except Exception as e:
+        logger.error(f"Failed to get today's events: {e}")
+        return f"Error getting today's events: {str(e)}"
+
+
+@tool
+def get_upcoming_events(days: int = 7) -> str:
+    """
+    Get upcoming calendar events for the next N days.
+    
+    WHEN TO USE:
+    - User asks about their upcoming schedule
+    - User wants to see their week ahead
+    - You need to analyze the user's calendar
+    
+    ARGS:
+    - days (int): Number of days to look ahead (default: 7)
+    
+    RETURNS:
+    - A formatted string listing upcoming events grouped by day
+    """
+    logger.info(f"=== GET UPCOMING EVENTS ({days} days) ===")
+    try:
+        service = _get_calendar_service()
+        tz = pytz.timezone(TIMEZONE)
+        
+        now = datetime.now(tz)
+        end_date = now + timedelta(days=days)
+        
+        events_result = service.events().list(
+            calendarId="primary",
+            timeMin=now.isoformat(),
+            timeMax=end_date.isoformat(),
+            singleEvents=True,
+            orderBy="startTime",
+        ).execute()
+        
+        events = events_result.get("items", [])
+        logger.info(f"Found {len(events)} upcoming events")
+        
+        if not events:
+            return f"No events scheduled for the next {days} days."
+        
+        lines = [f"📅 Upcoming Events ({days} days):"]
+        current_date = None
+        
+        for event in events:
+            start = event.get("start", {})
+            if "dateTime" in start:
+                event_datetime = datetime.fromisoformat(start["dateTime"].replace("Z", "+00:00"))
+                time_str = event_datetime.strftime("%I:%M %p")
+            else:
+                event_datetime = datetime.fromisoformat(start.get("date", ""))
+                time_str = "All day"
+            
+            date_str = event_datetime.strftime("%A, %B %d")
+            if date_str != current_date:
+                current_date = date_str
+                lines.append(f"\n**{date_str}**")
+            
+            summary = event.get("summary", "No title")
+            location = event.get("location", "")
+            location_str = f" @ {location}" if location else ""
+            lines.append(f"• {time_str}: {summary}{location_str}")
+        
+        return "\n".join(lines)
+        
+    except Exception as e:
+        logger.error(f"Failed to get upcoming events: {e}")
+        return f"Error getting upcoming events: {str(e)}"
+
+
+@tool
+def find_free_time_slots(
+    date: str,
+    duration_minutes: int = 60,
+    start_hour: int = 9,
+    end_hour: int = 17
+) -> str:
+    """
+    Find available time slots on a specific day.
+    
+    WHEN TO USE:
+    - User wants to schedule a meeting and needs to find available time
+    - User asks "when am I free on Tuesday?"
+    - You need to suggest times for a new event
+    
+    ARGS:
+    - date (str): The date to check in YYYY-MM-DD format
+    - duration_minutes (int): Length of the time slot needed (default: 60)
+    - start_hour (int): Start of working hours (default: 9)
+    - end_hour (int): End of working hours (default: 17)
+    
+    RETURNS:
+    - A list of available time slots
+    """
+    logger.info(f"=== FIND FREE SLOTS on {date} ===")
+    try:
+        service = _get_calendar_service()
+        tz = pytz.timezone(TIMEZONE)
+        
+        target_date = datetime.strptime(date, "%Y-%m-%d")
+        target_date = tz.localize(target_date)
+        
+        start_of_day = target_date.replace(hour=start_hour, minute=0, second=0, microsecond=0)
+        end_of_day = target_date.replace(hour=end_hour, minute=0, second=0, microsecond=0)
+        
+        events_result = service.events().list(
+            calendarId="primary",
+            timeMin=start_of_day.isoformat(),
+            timeMax=end_of_day.isoformat(),
+            singleEvents=True,
+            orderBy="startTime",
+        ).execute()
+        
+        events = events_result.get("items", [])
+        
+        free_slots = []
+        current_time = start_of_day
+        
+        for event in events:
+            event_start_str = event.get("start", {}).get("dateTime")
+            event_end_str = event.get("end", {}).get("dateTime")
+            
+            if not event_start_str or not event_end_str:
+                continue
+            
+            event_start = datetime.fromisoformat(event_start_str.replace("Z", "+00:00")).astimezone(tz)
+            event_end = datetime.fromisoformat(event_end_str.replace("Z", "+00:00")).astimezone(tz)
+            
+            if current_time + timedelta(minutes=duration_minutes) <= event_start:
+                free_slots.append({
+                    "start": current_time.strftime("%I:%M %p"),
+                    "end": event_start.strftime("%I:%M %p"),
+                })
+            
+            if event_end > current_time:
+                current_time = event_end
+        
+        if current_time + timedelta(minutes=duration_minutes) <= end_of_day:
+            free_slots.append({
+                "start": current_time.strftime("%I:%M %p"),
+                "end": end_of_day.strftime("%I:%M %p"),
+            })
+        
+        if not free_slots:
+            return f"No available slots of {duration_minutes} minutes on {date}"
+        
+        lines = [f"🕐 Available time slots on {target_date.strftime('%A, %B %d')}:"]
+        for slot in free_slots:
+            lines.append(f"• {slot['start']} - {slot['end']}")
+        
+        logger.info(f"Found {len(free_slots)} free slots")
+        return "\n".join(lines)
+        
+    except Exception as e:
+        logger.error(f"Failed to find free slots: {e}")
+        return f"Error finding free slots: {str(e)}"
+
+
+# =========================
+# Calendar Creation Tools
+# =========================
+
+@tool
+def create_calendar_event(
+    title: str,
+    date: str,
+    start_time: str,
+    duration_minutes: int = 60,
+    description: str = "",
+    location: str = "",
+    attendees: List[str] = None
+) -> str:
+    """
+    Create a new calendar event.
+    
+    WHEN TO USE:
+    - User wants to add an event to their calendar
+    - User says "schedule a meeting" or "add to my calendar"
+    - After confirming event details with the user
+    
+    ARGS:
+    - title (str): The event title/summary
+    - date (str): The date in YYYY-MM-DD format
+    - start_time (str): The start time in HH:MM format (24-hour)
+    - duration_minutes (int): How long the event is (default: 60)
+    - description (str): Optional event description
+    - location (str): Optional event location
+    - attendees (List[str]): Optional list of email addresses to invite
+    
+    RETURNS:
+    - Confirmation message with event details and link
+    """
+    logger.info(f"=== CREATE EVENT: {title} ===")
+    logger.info(f"Date: {date}, Time: {start_time}, Duration: {duration_minutes}min")
+    
+    try:
+        service = _get_calendar_service()
+        tz = pytz.timezone(TIMEZONE)
+        
+        # Parse date and time
+        event_date = datetime.strptime(date, "%Y-%m-%d")
+        hour, minute = map(int, start_time.split(":"))
+        start_datetime = tz.localize(event_date.replace(hour=hour, minute=minute))
+        end_datetime = start_datetime + timedelta(minutes=duration_minutes)
+        
+        event = {
+            "summary": title,
+            "description": description,
+            "start": {
+                "dateTime": start_datetime.isoformat(),
+                "timeZone": TIMEZONE,
+            },
+            "end": {
+                "dateTime": end_datetime.isoformat(),
+                "timeZone": TIMEZONE,
+            },
+        }
+        
+        if location:
+            event["location"] = location
+        
+        if attendees:
+            event["attendees"] = [{"email": email} for email in attendees]
+        
+        logger.info(f"Event payload: {event}")
+        
+        created_event = service.events().insert(
+            calendarId="primary",
+            body=event,
+            sendUpdates="all" if attendees else "none",
+        ).execute()
+        
+        logger.info(f"=== EVENT CREATED SUCCESSFULLY ===")
+        logger.info(f"Event ID: {created_event.get('id')}")
+        logger.info(f"Event link: {created_event.get('htmlLink')}")
+        
+        return f"""✅ Event created successfully!
+
+**{title}**
+📅 {start_datetime.strftime('%A, %B %d, %Y')}
+🕐 {start_datetime.strftime('%I:%M %p')} - {end_datetime.strftime('%I:%M %p')}
+{f'📍 {location}' if location else ''}
+{f'👥 Invited: {", ".join(attendees)}' if attendees else ''}
+
+[View in Google Calendar]({created_event.get('htmlLink')})"""
+        
+    except Exception as e:
+        logger.error(f"=== EVENT CREATION FAILED ===")
+        logger.error(f"Error: {e}")
+        import traceback
+        logger.error(f"Traceback: {traceback.format_exc()}")
+        return f"❌ Failed to create event: {str(e)}"
+
+
+@tool
+def create_birthday_reminder(
+    name: str,
+    date: str
+) -> str:
+    """
+    Create a recurring yearly birthday event.
+    
+    WHEN TO USE:
+    - User wants to add someone's birthday to their calendar
+    - User says "remember [name]'s birthday on [date]"
+    - User wants a yearly recurring birthday reminder
+    
+    ARGS:
+    - name (str): The person's name
+    - date (str): The birthday date in YYYY-MM-DD format (year can be any year)
+    
+    RETURNS:
+    - Confirmation message with the birthday event details
+    """
+    logger.info(f"=== CREATE BIRTHDAY: {name} on {date} ===")
+    
+    try:
+        service = _get_calendar_service()
+        
+        birthday_date = datetime.strptime(date, "%Y-%m-%d")
+        start_date_str = birthday_date.strftime("%Y-%m-%d")
+        end_date = birthday_date + timedelta(days=1)
+        end_date_str = end_date.strftime("%Y-%m-%d")
+        
+        event = {
+            "summary": f"🎂 {name}'s Birthday",
+            "description": f"Don't forget to wish {name} a happy birthday!",
+            "start": {"date": start_date_str},
+            "end": {"date": end_date_str},
+            "recurrence": ["RRULE:FREQ=YEARLY"],
+        }
+        
+        logger.info(f"Birthday event payload: {event}")
+        
+        created_event = service.events().insert(
+            calendarId="primary",
+            body=event,
+        ).execute()
+        
+        logger.info(f"=== BIRTHDAY CREATED SUCCESSFULLY ===")
+        logger.info(f"Event ID: {created_event.get('id')}")
+        
+        return f"""✅ Birthday reminder created!
+
+🎂 **{name}'s Birthday**
+📅 {birthday_date.strftime('%B %d')} (recurring yearly)
+
+[View in Google Calendar]({created_event.get('htmlLink')})"""
+        
+    except Exception as e:
+        logger.error(f"=== BIRTHDAY CREATION FAILED ===")
+        logger.error(f"Error: {e}")
+        return f"❌ Failed to create birthday reminder: {str(e)}"
+
+
+@tool
+def schedule_interview(
+    candidate_name: str,
+    interviewer_emails: List[str],
+    date: str,
+    start_time: str,
+    duration_minutes: int = 60,
+    notes: str = ""
+) -> str:
+    """
+    Schedule an interview with a candidate and interviewers.
+    
+    WHEN TO USE:
+    - User wants to schedule an interview
+    - User says "book an interview with [candidate] and [interviewers]"
+    
+    ARGS:
+    - candidate_name (str): Name of the candidate being interviewed
+    - interviewer_emails (List[str]): List of interviewer email addresses
+    - date (str): The date in YYYY-MM-DD format
+    - start_time (str): The start time in HH:MM format (24-hour)
+    - duration_minutes (int): Interview length (default: 60)
+    - notes (str): Optional notes about the interview
+    
+    RETURNS:
+    - Confirmation message with interview details
+    """
+    logger.info(f"=== SCHEDULE INTERVIEW: {candidate_name} ===")
+    logger.info(f"Interviewers: {interviewer_emails}")
+    
+    try:
+        service = _get_calendar_service()
+        tz = pytz.timezone(TIMEZONE)
+        
+        event_date = datetime.strptime(date, "%Y-%m-%d")
+        hour, minute = map(int, start_time.split(":"))
+        start_datetime = tz.localize(event_date.replace(hour=hour, minute=minute))
+        end_datetime = start_datetime + timedelta(minutes=duration_minutes)
+        
+        event = {
+            "summary": f"Interview: {candidate_name}",
+            "description": notes or f"Interview with {candidate_name}",
+            "start": {
+                "dateTime": start_datetime.isoformat(),
+                "timeZone": TIMEZONE,
+            },
+            "end": {
+                "dateTime": end_datetime.isoformat(),
+                "timeZone": TIMEZONE,
+            },
+            "attendees": [{"email": email} for email in interviewer_emails],
+        }
+        
+        created_event = service.events().insert(
+            calendarId="primary",
+            body=event,
+            sendUpdates="all",
+        ).execute()
+        
+        logger.info(f"=== INTERVIEW SCHEDULED SUCCESSFULLY ===")
+        
+        return f"""✅ Interview scheduled!
+
+👤 **Interview with {candidate_name}**
+📅 {start_datetime.strftime('%A, %B %d, %Y')}
+🕐 {start_datetime.strftime('%I:%M %p')} - {end_datetime.strftime('%I:%M %p')} ({duration_minutes} min)
+👥 Interviewers: {', '.join(interviewer_emails)}
+
+Calendar invites have been sent to all participants.
+[View in Google Calendar]({created_event.get('htmlLink')})"""
+        
+    except Exception as e:
+        logger.error(f"=== INTERVIEW SCHEDULING FAILED ===")
+        logger.error(f"Error: {e}")
+        return f"❌ Failed to schedule interview: {str(e)}"
+
+
+# =========================
+# Calendar Management Tools
+# =========================
+
+@tool
+def delete_calendar_event(event_id: str) -> str:
+    """
+    Delete a calendar event by its ID.
+    
+    WHEN TO USE:
+    - User wants to remove/cancel an event
+    - User confirms they want to delete a specific event
+    
+    ARGS:
+    - event_id (str): The Google Calendar event ID
+    
+    RETURNS:
+    - Confirmation that the event was deleted
+    """
+    logger.info(f"=== DELETE EVENT: {event_id} ===")
+    
+    try:
+        service = _get_calendar_service()
+        service.events().delete(calendarId="primary", eventId=event_id).execute()
+        
+        logger.info("Event deleted successfully")
+        return "✅ Event deleted successfully."
+        
+    except Exception as e:
+        logger.error(f"Failed to delete event: {e}")
+        return f"❌ Failed to delete event: {str(e)}"

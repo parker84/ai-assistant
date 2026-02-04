@@ -247,19 +247,7 @@ def render_sidebar():
 def render_chat_page():
     """Render the chat interface."""
     st.title("🦾 Auto")
-    st.caption("Your AI Assistant to automate your life.")
-    
-    # Get credentials and calendar context
-    credentials = None
-    calendar_context = ""
-    if st.session_state.get("google_credentials"):
-        credentials = get_credentials_from_tokens(st.session_state["google_credentials"])
-        if credentials:
-            try:
-                events = get_todays_events(credentials)
-                calendar_context = get_calendar_summary(credentials, days=3)
-            except Exception as e:
-                st.warning(f"Could not load calendar: {e}")
+    st.caption("Your AI Assistant - powered by Agno")
     
     # Check if there's a pending message that needs a response (from button clicks)
     pending_prompt = None
@@ -289,11 +277,7 @@ def render_chat_page():
         with st.chat_message("assistant", avatar="🤖"):
             with st.spinner("Thinking..."):
                 if st.session_state.assistant:
-                    kb_update = st.session_state.assistant.update_knowledge_from_chat(pending_prompt)
-                    if kb_update:
-                        st.info(kb_update)
-                    
-                    response = st.session_state.assistant.chat(pending_prompt, calendar_context)
+                    response = st.session_state.assistant.chat(pending_prompt)
                 else:
                     response = "Assistant not initialized. Please check your API keys."
                 
@@ -314,11 +298,7 @@ def render_chat_page():
         with st.chat_message("assistant", avatar="🤖"):
             with st.spinner("Thinking..."):
                 if st.session_state.assistant:
-                    kb_update = st.session_state.assistant.update_knowledge_from_chat(prompt)
-                    if kb_update:
-                        st.info(kb_update)
-                    
-                    response = st.session_state.assistant.chat(prompt, calendar_context)
+                    response = st.session_state.assistant.chat(prompt)
                 else:
                     response = "Assistant not initialized. Please check your API keys."
                 
@@ -552,12 +532,8 @@ def render_daily_brief_page():
     if "daily_brief" not in st.session_state or not st.session_state.get("daily_brief"):
         with st.spinner("Generating your daily brief..."):
             try:
-                events = []
-                if credentials:
-                    events = get_todays_events(credentials)
-                
                 if st.session_state.assistant:
-                    brief = st.session_state.assistant.generate_daily_brief(events)
+                    brief = st.session_state.assistant.generate_daily_brief()
                     st.session_state["daily_brief"] = brief
                 else:
                     st.session_state["daily_brief"] = "Assistant not configured. Please check your API keys."
@@ -573,12 +549,8 @@ def render_daily_brief_page():
     if st.button("🔄 Regenerate", use_container_width=True):
         with st.spinner("Regenerating..."):
             try:
-                events = []
-                if credentials:
-                    events = get_todays_events(credentials)
-                
                 if st.session_state.assistant:
-                    brief = st.session_state.assistant.generate_daily_brief(events)
+                    brief = st.session_state.assistant.generate_daily_brief()
                     st.session_state["daily_brief"] = brief
                     st.rerun()
             except Exception as e:
@@ -644,10 +616,16 @@ def main():
     
     # Initialize assistant and knowledge base for authenticated user
     user_email = st.session_state.get("user_email", "")
+    credentials = None
+    if st.session_state.get("google_credentials"):
+        credentials = get_credentials_from_tokens(st.session_state["google_credentials"])
     
     if user_email and not st.session_state.assistant:
-        st.session_state.assistant = AIAssistant(user_email)
+        st.session_state.assistant = AIAssistant(user_email, credentials=credentials)
         st.session_state.knowledge_base = KnowledgeBase(user_email)
+    elif user_email and st.session_state.assistant and credentials:
+        # Update credentials if they've changed
+        st.session_state.assistant.update_credentials(credentials)
     
     # Render sidebar and get selected page
     page = render_sidebar()
