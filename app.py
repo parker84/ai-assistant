@@ -265,7 +265,7 @@ def render_chat_page():
         messages_to_display = st.session_state.messages[:-1]
     
     for message in messages_to_display:
-        avatar = "💁‍♀️" if message["role"] == "user" else "🤖"
+        avatar = "💁‍♀️" if message["role"] == "user" else ":material/smart_toy:"
         with st.chat_message(message["role"], avatar=avatar):
             st.markdown(message["content"])
     
@@ -274,7 +274,7 @@ def render_chat_page():
         with st.chat_message("user", avatar="💁‍♀️"):
             st.markdown(pending_prompt)
         
-        with st.chat_message("assistant", avatar="🤖"):
+        with st.chat_message("assistant", avatar=":material/smart_toy:"):
             with st.spinner("Thinking..."):
                 if st.session_state.assistant:
                     response = st.session_state.assistant.chat(pending_prompt)
@@ -295,7 +295,7 @@ def render_chat_page():
             st.markdown(prompt)
         
         # Get assistant response
-        with st.chat_message("assistant", avatar="🤖"):
+        with st.chat_message("assistant", avatar=":material/smart_toy:"):
             with st.spinner("Thinking..."):
                 if st.session_state.assistant:
                     response = st.session_state.assistant.chat(prompt)
