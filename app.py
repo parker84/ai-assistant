@@ -183,7 +183,7 @@ def init_session_state():
 def render_login_page():
     """Render the login page."""
     st.title(f"🦾 {APP_NAME}")
-    st.markdown("### Your AI Assistant to automate your life")
+    st.markdown("### Your AI Assistant")
     
     st.markdown("""
     Welcome! This assistant helps you:
@@ -247,7 +247,7 @@ def render_sidebar():
 def render_chat_page():
     """Render the chat interface."""
     st.title("🦾 Auto")
-    st.caption("Your AI Assistant - powered by Agno")
+    st.caption("Your AI Assistant")
     
     # Check if there's a pending message that needs a response (from button clicks)
     pending_prompt = None
