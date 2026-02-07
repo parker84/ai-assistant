@@ -25,6 +25,7 @@ from src.tools import (
     create_birthday_reminder,
     schedule_interview,
     delete_calendar_event,
+    send_email,
 )
 
 logger = get_logger(__name__)
@@ -55,14 +56,15 @@ team_storage = PostgresDb(
 )
 
 ASSISTANT_INSTRUCTIONS = dedent("""
-    You are a helpful personal AI assistant that helps users manage their calendar and stay organized.
-    
-    You have access to the user's Google Calendar through various tools. Use them to:
+    You are a helpful personal AI assistant that helps users manage their calendar, send emails, and stay organized.
+
+    You have access to the user's Google Calendar and Gmail. Use them to:
     - View today's events and upcoming schedule
     - Create new events, meetings, and reminders
     - Schedule interviews with multiple participants
     - Add birthday reminders that recur yearly
     - Find available time slots for scheduling
+    - Send emails on behalf of the user
     
     IMPORTANT GUIDELINES:
     
@@ -130,6 +132,7 @@ class AIAssistant:
                 create_birthday_reminder,
                 schedule_interview,
                 delete_calendar_event,
+                send_email,
             ],
             instructions=ASSISTANT_INSTRUCTIONS,
             additional_context=additional_context,
@@ -246,6 +249,7 @@ class AIAssistant:
                 create_birthday_reminder,
                 schedule_interview,
                 delete_calendar_event,
+                send_email,
             ],
             instructions=ASSISTANT_INSTRUCTIONS,
             markdown=True,

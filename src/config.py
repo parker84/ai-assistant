@@ -40,3 +40,7 @@ DATABASE_PATH = DATA_DIR / "assistant.db"
 
 # Knowledge base
 KNOWLEDGE_BASE_PATH = DATA_DIR / "knowledge_base.md"
+
+# Email settings
+GMAIL_ADDRESS = os.getenv("GMAIL_ADDRESS", "")
+GMAIL_APP_PASSWORD = os.getenv("GMAIL_APP_PASSWORD", "")

@@ -1,10 +1,13 @@
 """Calendar tools for Agno agent."""
 from agno.tools import tool
 from datetime import datetime, timedelta
-from typing import List, Dict, Any, Optional
+from typing import List
 import pytz
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
 
-from src.config import TIMEZONE
+from src.config import TIMEZONE, GMAIL_ADDRESS, GMAIL_APP_PASSWORD
 from src.logging_utils import get_logger
 
 logger = get_logger(__name__)
@@ -495,26 +498,114 @@ Calendar invites have been sent to all participants.
 def delete_calendar_event(event_id: str) -> str:
     """
     Delete a calendar event by its ID.
-    
+
     WHEN TO USE:
     - User wants to remove/cancel an event
     - User confirms they want to delete a specific event
-    
+
     ARGS:
     - event_id (str): The Google Calendar event ID
-    
+
     RETURNS:
     - Confirmation that the event was deleted
     """
     logger.info(f"=== DELETE EVENT: {event_id} ===")
-    
+
     try:
         service = _get_calendar_service()
         service.events().delete(calendarId="primary", eventId=event_id).execute()
-        
+
         logger.info("Event deleted successfully")
         return "✅ Event deleted successfully."
-        
+
     except Exception as e:
         logger.error(f"Failed to delete event: {e}")
         return f"❌ Failed to delete event: {str(e)}"
+
+
+# =========================
+# Email Tools
+# =========================
+
+@tool
+def send_email(
+    to_email: str,
+    subject: str,
+    body: str,
+    cc: List[str] = None,
+    bcc: List[str] = None
+) -> str:
+    """
+    Send an email using Gmail SMTP.
+
+    WHEN TO USE:
+    - User asks to send an email
+    - User wants to email someone with specific content
+    - User says "email [person] about [topic]"
+
+    ARGS:
+    - to_email (str): Recipient's email address
+    - subject (str): Email subject line
+    - body (str): Email body content (can include line breaks)
+    - cc (List[str]): Optional list of CC email addresses
+    - bcc (List[str]): Optional list of BCC email addresses
+
+    RETURNS:
+    - Confirmation message with details of the sent email
+    """
+    logger.info(f"=== SEND EMAIL ===")
+    logger.info(f"To: {to_email}")
+    logger.info(f"Subject: {subject}")
+
+    if not GMAIL_ADDRESS or not GMAIL_APP_PASSWORD:
+        logger.error("Gmail credentials not configured")
+        return "❌ Gmail credentials not configured. Please set GMAIL_ADDRESS and GMAIL_APP_PASSWORD in your .env file."
+
+    try:
+        # Create message
+        msg = MIMEMultipart()
+        msg['From'] = GMAIL_ADDRESS
+        msg['To'] = to_email
+        msg['Subject'] = subject
+
+        if cc:
+            msg['Cc'] = ', '.join(cc)
+
+        # Add body
+        msg.attach(MIMEText(body, 'plain'))
+
+        # Build recipient list
+        recipients = [to_email]
+        if cc:
+            recipients.extend(cc)
+        if bcc:
+            recipients.extend(bcc)
+
+        # Connect to Gmail SMTP server
+        logger.info("Connecting to Gmail SMTP server...")
+        with smtplib.SMTP_SSL('smtp.gmail.com', 465) as server:
+            server.login(GMAIL_ADDRESS, GMAIL_APP_PASSWORD)
+            server.send_message(msg)
+
+        logger.info("=== EMAIL SENT SUCCESSFULLY ===")
+
+        result = f"""✅ Email sent successfully!
+
+**To:** {to_email}
+{f'**CC:** {", ".join(cc)}' if cc else ''}
+**Subject:** {subject}
+
+**Message:**
+{body[:200]}{'...' if len(body) > 200 else ''}"""
+
+        return result
+
+    except smtplib.SMTPAuthenticationError:
+        logger.error("SMTP Authentication failed")
+        return "❌ Failed to send email: Gmail authentication failed. Please check your GMAIL_APP_PASSWORD."
+    except Exception as e:
+        logger.error(f"=== EMAIL SENDING FAILED ===")
+        logger.error(f"Error: {e}")
+        import traceback
+        logger.error(f"Traceback: {traceback.format_exc()}")
+        return f"❌ Failed to send email: {str(e)}"
