@@ -40,30 +40,26 @@ class KnowledgeBase:
 
 ## About Me
 <!-- Add information about yourself that the assistant should know -->
-
-
-## Important People
-<!-- Add information about important people in your life -->
-<!-- Example:
-- **Mom (Jane)**: Birthday March 15, loves gardening
-- **Partner (Alex)**: Anniversary June 20, allergic to shellfish
--->
-
+I like efficiency and impact.
 
 ## Work Context
 <!-- Add context about your work that helps with scheduling and reminders -->
-
+1. I'm the head of data at a startup called Stan.
 
 ## Preferences
 <!-- Add your preferences for reminders, scheduling, etc. -->
-
+1. I like 30 minute meetings by default.
 
 ## Custom Reminders
 <!-- Add any recurring reminders or things you want to remember -->
 
+### Personal Reminders
+1. Proactively empathize with Kennedy today.
+2. Do something spontaneous for Kennedy today.
 
-## Notes
-<!-- General notes and information -->
+### Work Reminders
+1. Be a coach not a player today.
+2. Check in with everyone on the team today.
 
 """
         self.kb_file.write_text(template)
