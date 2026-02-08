@@ -498,25 +498,83 @@ def render_knowledge_base_page():
     
     kb = st.session_state.knowledge_base
     
-    current_content = kb.get_knowledge_base()
+    tab_markdown, tab_memories = st.tabs(["🖊️ Knowledge Base", "🤖 Learned Memories"])
     
-    new_content = st.text_area(
-        "Edit your knowledge base (Markdown)",
-        value=current_content,
-        height=500,
-        label_visibility="collapsed",
-    )
+    with tab_markdown:
+        current_content = kb.get_knowledge_base()
+        
+        new_content = st.text_area(
+            "Edit your knowledge base (Markdown)",
+            value=current_content,
+            height=500,
+            label_visibility="collapsed",
+            key="kb_editor",
+        )
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("💾 Save", use_container_width=True, key="kb_save"):
+                if kb.update_knowledge_base(new_content):
+                    st.success("Saved!")
+                else:
+                    st.error("Failed to save.")
+        with col2:
+            if st.button("🔄 Reset to Template", use_container_width=True, key="kb_reset"):
+                kb._init_knowledge_base()
+                st.rerun()
     
-    col1, col2 = st.columns(2)
-    with col1:
-        if st.button("💾 Save", use_container_width=True):
-            if kb.update_knowledge_base(new_content):
-                st.success("Saved!")
-            else:
-                st.error("Failed to save.")
-    with col2:
-        if st.button("🔄 Reset to Template", use_container_width=True):
-            kb._init_knowledge_base()
+    with tab_memories:
+        st.subheader("Learned Memories")
+        st.caption("Memories the AI has learned from your conversations (Agno learning system)")
+        
+        if not st.session_state.assistant:
+            st.info("Start chatting with the assistant to build up learned memories.")
+            return
+        
+        try:
+            memories = st.session_state.assistant.get_learned_memories()
+        except Exception as e:
+            st.error(f"Error loading memories: {e}")
+            memories = {"user_profile": [], "entities": [], "session_context": []}
+        
+        has_any = (
+            bool(memories.get("user_profile"))
+            or bool(memories.get("entities"))
+            or bool(memories.get("session_context"))
+        )
+        
+        if not has_any:
+            st.info("No learned memories yet. Chat with the assistant and it will remember things about you.")
+            return
+        
+        if memories.get("user_profile"):
+            st.markdown("#### 👤 User Profile")
+            for i, item in enumerate(memories["user_profile"]):
+                with st.expander(f"Profile {i + 1}", expanded=(i == 0)):
+                    if isinstance(item, dict):
+                        st.json(item)
+                    else:
+                        st.write(item)
+        
+        if memories.get("entities"):
+            st.markdown("#### 📌 Entities")
+            for i, item in enumerate(memories["entities"]):
+                with st.expander(f"Entity {i + 1}", expanded=(i == 0)):
+                    if isinstance(item, dict):
+                        st.json(item)
+                    else:
+                        st.write(item)
+        
+        if memories.get("session_context"):
+            st.markdown("#### 📋 Session Context")
+            for i, item in enumerate(memories["session_context"]):
+                with st.expander(f"Session {i + 1}", expanded=(i == 0)):
+                    if isinstance(item, dict):
+                        st.json(item)
+                    else:
+                        st.write(item)
+        
+        if st.button("🔄 Refresh Memories", use_container_width=True, key="refresh_memories"):
             st.rerun()
 
 

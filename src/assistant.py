@@ -8,6 +8,14 @@ from decouple import config
 from agno.agent import Agent
 from agno.models.openai import OpenAIChat
 from agno.models.anthropic import Claude
+from agno.learn.machine import LearningMachine
+from agno.learn.config import (
+    LearningMode,
+    UserProfileConfig,
+    SessionContextConfig,
+    EntityMemoryConfig,
+)
+from sqlalchemy import text
 
 from src.config import (
     LLM_PROVIDER,
@@ -65,28 +73,36 @@ ASSISTANT_INSTRUCTIONS = dedent("""
     - Add birthday reminders that recur yearly
     - Find available time slots for scheduling
     - Send emails on behalf of the user
-    
+
     IMPORTANT GUIDELINES:
-    
-    1. **Before creating events**: Always confirm the details with the user first.
+
+    1. **Learning and Memory**:
+       - Automatically remember important information about the user without being asked
+       - Track preferences, important people, relationships, and events
+       - Build a rich understanding of the user's life and context over time
+       - You have learning capabilities that automatically store this information
+
+    2. **Before creating events**: Always confirm the details with the user first.
        - Ask for missing information (date, time, duration)
        - Clarify ambiguous requests
-    
-    2. **Date/Time handling**: 
+
+    3. **Date/Time handling**:
        - When the user says "tomorrow", "next Monday", etc., calculate the actual date
        - Use 24-hour format (HH:MM) for the tools
        - Default duration is 60 minutes unless specified
-    
-    3. **Be helpful and proactive**:
+
+    4. **Be helpful and proactive**:
        - If the user's calendar looks busy, mention it
        - Suggest optimal times based on their schedule
        - Remind them of potential conflicts
-    
-    4. **Knowledge Base**:
+       - Use remembered information to personalize responses
+
+    5. **Knowledge Base**:
        - Reference the user's knowledge base for context about important people, preferences
+       - Your learned memories complement the knowledge base
        - Use this context to personalize your responses
-    
-    5. **Response format**:
+
+    6. **Response format**:
        - Be concise but friendly
        - Use emojis sparingly for visual clarity
        - When showing calendar info, format it nicely
@@ -96,12 +112,13 @@ ASSISTANT_INSTRUCTIONS = dedent("""
 class AIAssistant:
     """Agno-powered AI Assistant for calendar and task management."""
     
-    def __init__(self, user_email: str, credentials=None):
+    def __init__(self, user_email: str, credentials=None, session_id: Optional[str] = None):
         """Initialize the assistant for a user."""
         logger.info(f"=== INITIALIZING AGNO ASSISTANT ===")
         logger.info(f"User: {user_email}")
-        
+
         self.user_email = user_email
+        self.session_id = session_id or datetime.now().strftime("%Y%m%d")
         self.knowledge_base = KnowledgeBase(user_email)
         
         # Set credentials for calendar tools
@@ -112,7 +129,7 @@ class AIAssistant:
         # Build additional context from knowledge base
         kb_content = self.knowledge_base.get_knowledge_base()
         
-        additional_context = dedent(f"""
+        self.additional_context = dedent(f"""
             Current date/time: {datetime.now(pytz.timezone(TIMEZONE)).strftime('%A, %B %d, %Y at %I:%M %p')}
             Timezone: {TIMEZONE}
             
@@ -120,10 +137,13 @@ class AIAssistant:
             {kb_content if kb_content else "No knowledge base entries yet."}
         """)
         
-        # Create the Agno agent
+        # Get the model for learning
+        model = get_llm_model()
+
+        # Create the Agno agent with learning
         self.agent = Agent(
             name="Auto Assistant",
-            model=get_llm_model(),
+            model=model,
             tools=[
                 get_todays_events,
                 get_upcoming_events,
@@ -135,7 +155,7 @@ class AIAssistant:
                 send_email,
             ],
             instructions=ASSISTANT_INSTRUCTIONS,
-            additional_context=additional_context,
+            additional_context=self.additional_context,
             markdown=True,
             debug_mode=True,  # Enable Agno debug logging
             add_datetime_to_context=True,
@@ -144,8 +164,21 @@ class AIAssistant:
             add_history_to_context=True,
             num_history_runs=NUM_HISTORY_RUNS,
             db=team_storage,
+            # Learning capabilities
+            learning=LearningMachine(
+                db=team_storage,
+                model=model,
+                namespace=f"user:{self.user_email}:personal",
+                user_profile=UserProfileConfig(mode=LearningMode.AGENTIC),
+                session_context=SessionContextConfig(enable_planning=True),
+                entity_memory=EntityMemoryConfig(
+                    mode=LearningMode.AGENTIC,
+                ),
+            ),
+            user_id=self.user_email,
+            session_id=self.session_id,
         )
-        
+
         logger.info(f"Agno agent initialized with {len(self.agent.tools)} tools")
     
     def update_credentials(self, credentials):
@@ -238,9 +271,12 @@ class AIAssistant:
         """Clear the conversation history."""
         logger.info("Clearing conversation history")
         # Create a new agent instance to reset history
+
+        model = get_llm_model()
+
         self.agent = Agent(
             name="Auto Assistant",
-            model=get_llm_model(),
+            model=model,
             tools=[
                 get_todays_events,
                 get_upcoming_events,
@@ -252,13 +288,134 @@ class AIAssistant:
                 send_email,
             ],
             instructions=ASSISTANT_INSTRUCTIONS,
+            additional_context=self.additional_context,
             markdown=True,
-            debug_mode=True,
+            debug_mode=True,  # Enable Agno debug logging
             add_datetime_to_context=True,
             tool_call_limit=MAX_TOOL_CALLS,
+            # Memory - keep conversation history
             add_history_to_context=True,
             num_history_runs=NUM_HISTORY_RUNS,
+            db=team_storage,
+            # Learning capabilities
+            learning=LearningMachine(
+                db=team_storage,
+                model=model,
+                namespace=f"user:{self.user_email}:personal",
+                user_profile=UserProfileConfig(mode=LearningMode.AGENTIC),
+                session_context=SessionContextConfig(enable_planning=True),
+                entity_memory=EntityMemoryConfig(
+                    mode=LearningMode.AGENTIC,
+                ),
+            ),
+            user_id=self.user_email,
+            session_id=self.session_id,
         )
+
+    def get_learned_memories(self) -> dict:
+        """Get all learned memories from Agno's learning system."""
+        logger.info("=== RETRIEVING LEARNED MEMORIES ===")
+
+        try:
+            memories = {
+                "user_profile": [],
+                "entities": [],
+                "session_context": [],
+            }
+
+            # Debug: Log all agent attributes related to learning
+            logger.info("=== AGENT LEARNING ATTRIBUTES ===")
+            logger.info(f"Has learning: {hasattr(self.agent, 'learning')}")
+            logger.info(f"Learning value: {getattr(self.agent, 'learning', None)}")
+            logger.info(f"Has user_profile: {hasattr(self.agent, 'user_profile')}")
+            logger.info(f"User profile value: {getattr(self.agent, 'user_profile', None)}")
+            logger.info(f"Has entity_memory: {hasattr(self.agent, 'entity_memory')}")
+            logger.info(f"Entity memory value: {getattr(self.agent, 'entity_memory', None)}")
+            logger.info(f"Has user_profile_store: {hasattr(self.agent, 'user_profile_store')}")
+            logger.info(f"User profile store: {getattr(self.agent, 'user_profile_store', None)}")
+            logger.info(f"Has entity_memory_store: {hasattr(self.agent, 'entity_memory_store')}")
+            logger.info(f"Entity memory store: {getattr(self.agent, 'entity_memory_store', None)}")
+
+            # Access stores through the learning machine
+            if hasattr(self.agent, 'learning') and self.agent.learning:
+                learning = self.agent.learning
+                logger.info(f"Learning object: {learning}")
+
+                # Try to access stores from learning machine
+                if hasattr(learning, 'user_profile_store'):
+                    logger.info(f"user_profile_store from learning: {learning.user_profile_store}")
+                    try:
+                        store = learning.user_profile_store
+                        if store and hasattr(store, 'get'):
+                            stored_profile = store.get(user_id=self.user_email)
+                            logger.info(f"Retrieved user profile: {stored_profile}")
+                            if stored_profile:
+                                if hasattr(stored_profile, 'to_dict'):
+                                    memories["user_profile"].append(stored_profile.to_dict())
+                                elif hasattr(stored_profile, '__dict__'):
+                                    memories["user_profile"].append(vars(stored_profile))
+                                else:
+                                    memories["user_profile"].append({"data": str(stored_profile)})
+                    except Exception as e:
+                        logger.warning(f"Error getting user profile from store: {e}")
+                        import traceback
+                        logger.debug(traceback.format_exc())
+
+                if hasattr(learning, 'entity_memory_store'):
+                    logger.info(f"entity_memory_store from learning: {learning.entity_memory_store}")
+                    try:
+                        store = learning.entity_memory_store
+                        if store and hasattr(store, 'search'):
+                            # Use search with empty query to get all entities
+                            # Don't pass namespace - it uses the LearningMachine's namespace
+                            stored_entities = store.search(
+                                query="",
+                                user_id=self.user_email,
+                                limit=100
+                            )
+                            logger.info(f"Retrieved {len(stored_entities) if stored_entities else 0} entities")
+                            if stored_entities:
+                                for entity in stored_entities:
+                                    logger.info(f"Entity: {entity}")
+                                    if hasattr(entity, 'to_dict'):
+                                        memories["entities"].append(entity.to_dict())
+                                    elif hasattr(entity, '__dict__'):
+                                        memories["entities"].append(vars(entity))
+                                    else:
+                                        memories["entities"].append({"data": str(entity)})
+                    except Exception as e:
+                        logger.warning(f"Error searching entities from store: {e}")
+                        import traceback
+                        logger.debug(traceback.format_exc())
+
+                if hasattr(learning, 'session_context_store'):
+                    logger.info(f"session_context_store from learning: {learning.session_context_store}")
+                    try:
+                        store = learning.session_context_store
+                        if store and hasattr(store, 'get'):
+                            # SessionContextStore.get() only takes session_id
+                            stored_context = store.get(session_id=self.session_id)
+                            logger.info(f"Retrieved session context: {stored_context}")
+                            if stored_context:
+                                if hasattr(stored_context, 'to_dict'):
+                                    memories["session_context"].append(stored_context.to_dict())
+                                elif hasattr(stored_context, '__dict__'):
+                                    memories["session_context"].append(vars(stored_context))
+                                else:
+                                    memories["session_context"].append({"data": str(stored_context)})
+                    except Exception as e:
+                        logger.warning(f"Error getting session context from store: {e}")
+                        import traceback
+                        logger.debug(traceback.format_exc())
+
+            logger.info(f"Retrieved {len(memories['user_profile'])} user profile memories and {len(memories['entities'])} entity memories")
+            return memories
+
+        except Exception as e:
+            logger.error(f"Error retrieving memories: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
+            return {"user_profile": [], "entities": [], "session_context": []}
 
 
 # Convenience function for CLI usage
