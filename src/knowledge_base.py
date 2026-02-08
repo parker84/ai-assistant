@@ -1,8 +1,9 @@
 """Knowledge base management for storing user prompts and memories."""
 import json
+import random
 from datetime import datetime
 from pathlib import Path
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Tuple
 
 from src.config import DATA_DIR, KNOWLEDGE_BASE_PATH
 from src.logging_utils import get_logger
@@ -50,26 +51,15 @@ I like efficiency and impact.
 <!-- Add your preferences for reminders, scheduling, etc. -->
 1. I like 30 minute meetings by default.
 
-## Custom Reminders
-<!-- Add any recurring reminders or things you want to remember -->
-
-### Personal Reminders
-1. Proactively empathize with Kennedy today.
-2. Do something spontaneous for Kennedy today.
-
-### Work Reminders
-1. Be a coach not a player today.
-2. Check in with everyone on the team today.
 
 """
         self.kb_file.write_text(template)
     
     def _init_reminders(self):
-        """Initialize the reminders file."""
+        """Initialize the reminders file (personal + professional for daily brief)."""
         initial_reminders = {
-            "daily_reminders": [],
-            "recurring_reminders": [],
-            "one_time_reminders": [],
+            "personal": [],
+            "professional": [],
         }
         with open(self.reminders_file, "w") as f:
             json.dump(initial_reminders, f, indent=2)
@@ -131,80 +121,73 @@ I like efficiency and impact.
             print(f"Error appending to knowledge base: {e}")
             return False
     
-    def get_reminders(self) -> Dict[str, Any]:
-        """Get all reminders."""
+    def get_reminders(self) -> Dict[str, List[str]]:
+        """Get all daily reminders (personal + professional)."""
         if self.reminders_file.exists():
-            with open(self.reminders_file, "r") as f:
-                return json.load(f)
-        return {"daily_reminders": [], "recurring_reminders": [], "one_time_reminders": []}
-    
-    def add_reminder(
-        self,
-        text: str,
-        reminder_type: str = "daily",
-        schedule: Optional[Dict] = None,
-    ) -> bool:
-        """Add a new reminder."""
+            try:
+                data = json.loads(self.reminders_file.read_text())
+                # Migrate old format to new
+                if "daily_reminders" in data:
+                    # Migrate: extract text from old reminder objects
+                    personal = []
+                    professional = []
+                    for r in data.get("daily_reminders", []):
+                        text = r.get("text", "") if isinstance(r, dict) else str(r)
+                        if text:
+                            professional.append(text)  # Default old daily to professional
+                    migrated = {"personal": personal, "professional": professional}
+                    self.reminders_file.write_text(json.dumps(migrated, indent=2))
+                    return migrated
+                if "personal" in data or "professional" in data:
+                    return {
+                        "personal": data.get("personal", []),
+                        "professional": data.get("professional", []),
+                    }
+            except (json.JSONDecodeError, TypeError):
+                pass
+        return {"personal": [], "professional": []}
+
+    def add_reminder(self, category: str, text: str) -> bool:
+        """Add a reminder (category: 'personal' or 'professional')."""
+        if category not in ("personal", "professional"):
+            return False
         try:
             reminders = self.get_reminders()
-            
-            reminder = {
-                "id": datetime.now().strftime("%Y%m%d%H%M%S"),
-                "text": text,
-                "created_at": datetime.now().isoformat(),
-                "schedule": schedule,
-            }
-            
-            if reminder_type == "daily":
-                reminders["daily_reminders"].append(reminder)
-            elif reminder_type == "recurring":
-                reminders["recurring_reminders"].append(reminder)
-            else:
-                reminders["one_time_reminders"].append(reminder)
-            
-            with open(self.reminders_file, "w") as f:
-                json.dump(reminders, f, indent=2)
-            
-            return True
-        except Exception as e:
-            print(f"Error adding reminder: {e}")
+            text = text.strip()
+            if text and text not in reminders[category]:
+                reminders[category].append(text)
+                self.reminders_file.write_text(json.dumps(reminders, indent=2))
+                return True
             return False
-    
-    def remove_reminder(self, reminder_id: str) -> bool:
-        """Remove a reminder by ID."""
+        except Exception as e:
+            logger.error(f"Error adding reminder: {e}")
+            return False
+
+    def remove_reminder(self, category: str, index: int) -> bool:
+        """Remove a reminder by index."""
+        if category not in ("personal", "professional"):
+            return False
         try:
             reminders = self.get_reminders()
-            
-            for reminder_type in ["daily_reminders", "recurring_reminders", "one_time_reminders"]:
-                reminders[reminder_type] = [
-                    r for r in reminders[reminder_type] if r["id"] != reminder_id
-                ]
-            
-            with open(self.reminders_file, "w") as f:
-                json.dump(reminders, f, indent=2)
-            
-            return True
-        except Exception as e:
-            print(f"Error removing reminder: {e}")
+            if 0 <= index < len(reminders[category]):
+                reminders[category].pop(index)
+                self.reminders_file.write_text(json.dumps(reminders, indent=2))
+                return True
             return False
-    
-    def get_daily_brief_context(self) -> str:
-        """Get context for generating the daily brief."""
-        kb_content = self.get_knowledge_base()
+        except Exception as e:
+            logger.error(f"Error removing reminder: {e}")
+            return False
+
+    def get_random_daily_reminders(self) -> Tuple[Optional[str], Optional[str]]:
+        """Pick one random personal and one random professional reminder for the brief."""
         reminders = self.get_reminders()
-        
-        context = f"""
-## Knowledge Base
-{kb_content}
+        personal = random.choice(reminders["personal"]) if reminders["personal"] else None
+        professional = random.choice(reminders["professional"]) if reminders["professional"] else None
+        return personal, professional
 
-## Custom Reminders
-### Daily Reminders
-{json.dumps(reminders.get('daily_reminders', []), indent=2)}
-
-### Recurring Reminders
-{json.dumps(reminders.get('recurring_reminders', []), indent=2)}
-"""
-        return context
+    def get_daily_brief_context(self) -> str:
+        """Get knowledge base content for context (reminders are separate, managed in Daily Brief settings)."""
+        return self.get_knowledge_base()
     
     def search_knowledge_base(self, query: str) -> List[str]:
         """Search the knowledge base for relevant content."""

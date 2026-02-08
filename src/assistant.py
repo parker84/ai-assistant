@@ -223,26 +223,52 @@ class AIAssistant:
             logger.error(f"Async chat failed: {e}")
             return f"I encountered an error: {str(e)}"
     
-    def generate_daily_brief(self, calendar_events=None) -> str:
-        """Generate a daily brief."""
+    def generate_daily_brief(self) -> str:
+        """Generate a concise daily brief with random reminders and only big calendar items."""
         logger.info("=== GENERATING DAILY BRIEF ===")
         
         tz = pytz.timezone(TIMEZONE)
         today = datetime.now(tz)
         
+        # Pick one random personal and one random professional reminder
+        personal_reminder, professional_reminder = self.knowledge_base.get_random_daily_reminders()
+        
+        reminders_section = ""
+        if personal_reminder or professional_reminder:
+            reminders_section = "INCLUDE THESE REMINDERS in the correct sections:\n"
+            if professional_reminder:
+                reminders_section += f"- Work (💻): {professional_reminder}\n"
+            if personal_reminder:
+                reminders_section += f"- Personal (💁‍♀️): {personal_reminder}\n"
+        
         prompt = dedent(f"""
-            Generate a concise, friendly daily brief for {today.strftime('%A, %B %d, %Y')}.
+            Generate a daily brief for {today.strftime('%A, %B %d, %Y')}.
             
-            First, check my calendar for today's events using the get_todays_events tool.
+            Use get_todays_events and get_upcoming_events(days=30) to check my calendar.
             
-            Then create a brief that:
-            1. Starts with an appropriate greeting for the time of day
-            2. Summarizes today's calendar events
-            3. Mentions any important reminders from my knowledge base
-            4. Notes any upcoming birthdays or important dates
-            5. Ends with a helpful or motivational note
+            CRITICAL - ONLY mention these calendar items (skip the rest):
+            - Big personal dates: Today is X's birthday, Today is our anniversary, Valentine's Day is Saturday
+            - Important work events: Team offsite in 3 weeks (add note if relevant - e.g. "don't forget to let Kennedy know")
+            - Milestone events: first day of X, important deadlines
+            DO NOT list routine meetings or "no birthdays coming up" or redundant summaries.
+            If nothing big is happening, skip the Calendar section or say "Nothing major coming up."
             
-            Keep it concise but personal.
+            {reminders_section}
+            
+            OUTPUT FORMAT - use exactly this structure (omit a section if empty):
+
+            <insert short greeting here>
+            
+            📆 Calendar \n
+            <one line: big calendar items only, or "Nothing major coming up.">
+            
+            💻 Work \n
+            <one line: the work reminder if provided>
+            
+            💁‍♀️ Personal \n
+            <one line: the personal reminder if provided>
+            
+            Keep each section to one short line. But they should be separate lines.
         """)
         
         return self.chat(prompt)

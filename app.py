@@ -419,9 +419,51 @@ def render_daily_brief_page():
     """Render the daily brief page."""
     st.title("📊 Daily Brief")
     
-    credentials = None
-    if st.session_state.get("google_credentials"):
-        credentials = get_credentials_from_tokens(st.session_state["google_credentials"])
+    kb = st.session_state.knowledge_base
+    
+    # Settings expander: Personal & Professional reminders
+    if not kb:
+        st.warning("Knowledge base not initialized.")
+        return
+    
+    with st.expander("⚙️ Reminders", expanded=False):
+        st.caption("One personal and one professional reminder are randomly picked for each brief.")
+        
+        reminders = kb.get_reminders()
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.markdown("**Personal 💁‍♀️**")
+            for i, r in enumerate(reminders.get("personal", [])):
+                rc1, rc2 = st.columns([4, 1])
+                with rc1:
+                    st.text(r)
+                with rc2:
+                    if st.button("🗑️", key=f"del_personal_{i}"):
+                        kb.remove_reminder("personal", i)
+                        st.rerun()
+            new_personal = st.text_input("Add personal reminder", key="new_personal_reminder", placeholder="e.g. Do something spontaneous for Kennedy today")
+            if st.button("Add", key="add_personal") and new_personal:
+                kb.add_reminder("personal", new_personal)
+                st.rerun()
+        
+        with col2:
+            st.markdown("**Professional 💻**")
+            for i, r in enumerate(reminders.get("professional", [])):
+                rc1, rc2 = st.columns([4, 1])
+                with rc1:
+                    st.text(r)
+                with rc2:
+                    if st.button("🗑️", key=f"del_professional_{i}"):
+                        kb.remove_reminder("professional", i)
+                        st.rerun()
+            new_professional = st.text_input("Add professional reminder", key="new_professional_reminder", placeholder="e.g. Be a coach not a player today")
+            if st.button("Add", key="add_professional") and new_professional:
+                kb.add_reminder("professional", new_professional)
+                st.rerun()
+    
+    st.divider()
     
     # Auto-generate brief on first load if not already generated
     if "daily_brief" not in st.session_state or not st.session_state.get("daily_brief"):
