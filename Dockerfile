@@ -17,9 +17,6 @@ COPY . .
 # Install the project itself
 RUN uv sync --frozen --no-dev
 
-# Create data directory for runtime
-RUN mkdir -p data
-
 # Expose Streamlit port
 EXPOSE 8501
 

@@ -3,18 +3,16 @@ import streamlit as st
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import Flow
 from google.auth.transport.requests import Request
-import json
-from pathlib import Path
+from datetime import datetime, timezone
 from typing import Optional
-import os
 
 from src.config import (
     GOOGLE_CLIENT_ID,
     GOOGLE_CLIENT_SECRET,
     GOOGLE_REDIRECT_URI,
     GOOGLE_SCOPES,
-    DATA_DIR,
 )
+from src.database import SessionLocal, UserToken
 from src.logging_utils import get_logger
 
 logger = get_logger(__name__)
@@ -130,53 +128,47 @@ def get_credentials_from_tokens(token_data: dict) -> Optional[Credentials]:
 
 
 def save_user_tokens(user_email: str, token_data: dict):
-    """Save user tokens to file."""
-    tokens_dir = DATA_DIR / "tokens"
-    tokens_dir.mkdir(exist_ok=True)
-    
-    # Use a safe filename
-    safe_email = user_email.replace("@", "_at_").replace(".", "_")
-    token_file = tokens_dir / f"{safe_email}.json"
-    
-    with open(token_file, "w") as f:
-        json.dump(token_data, f)
-    
-    # Also save as the "last user" for session restoration
-    last_user_file = tokens_dir / "last_user.txt"
-    with open(last_user_file, "w") as f:
-        f.write(user_email)
+    """Save user tokens to database."""
+    with SessionLocal() as session:
+        row = session.query(UserToken).filter_by(user_email=user_email).first()
+        if row:
+            row.token_data = token_data
+            row.is_last_user = datetime.now(timezone.utc)
+        else:
+            session.add(UserToken(
+                user_email=user_email,
+                token_data=token_data,
+                is_last_user=datetime.now(timezone.utc),
+            ))
+        session.commit()
 
 
 def load_user_tokens(user_email: str) -> Optional[dict]:
-    """Load user tokens from file."""
-    tokens_dir = DATA_DIR / "tokens"
-    safe_email = user_email.replace("@", "_at_").replace(".", "_")
-    token_file = tokens_dir / f"{safe_email}.json"
-    
-    if token_file.exists():
-        with open(token_file, "r") as f:
-            return json.load(f)
-    return None
+    """Load user tokens from database."""
+    with SessionLocal() as session:
+        row = session.query(UserToken).filter_by(user_email=user_email).first()
+        return row.token_data if row else None
 
 
 def get_last_logged_in_user() -> Optional[str]:
     """Get the email of the last logged in user."""
-    tokens_dir = DATA_DIR / "tokens"
-    last_user_file = tokens_dir / "last_user.txt"
-    
-    if last_user_file.exists():
-        with open(last_user_file, "r") as f:
-            return f.read().strip()
-    return None
+    with SessionLocal() as session:
+        row = (
+            session.query(UserToken)
+            .filter(UserToken.is_last_user.isnot(None))
+            .order_by(UserToken.is_last_user.desc())
+            .first()
+        )
+        return row.user_email if row else None
 
 
 def clear_last_logged_in_user():
     """Clear the last logged in user (on logout)."""
-    tokens_dir = DATA_DIR / "tokens"
-    last_user_file = tokens_dir / "last_user.txt"
-    
-    if last_user_file.exists():
-        last_user_file.unlink()
+    with SessionLocal() as session:
+        session.query(UserToken).filter(
+            UserToken.is_last_user.isnot(None)
+        ).update({"is_last_user": None})
+        session.commit()
 
 
 def get_user_info(credentials: Credentials) -> Optional[dict]:

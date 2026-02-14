@@ -1,15 +1,9 @@
 """Configuration management for the AI Assistant."""
 import os
-from pathlib import Path
 from dotenv import load_dotenv
 
 # Load environment variables
 load_dotenv()
-
-# Base paths
-BASE_DIR = Path(__file__).parent.parent
-DATA_DIR = BASE_DIR / "data"
-DATA_DIR.mkdir(exist_ok=True)
 
 # Google OAuth settings
 GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID", "")
@@ -34,12 +28,6 @@ LLM_MODEL = os.getenv("LLM_MODEL", "claude-sonnet-4-20250514")
 # App settings
 APP_NAME = "Auto"
 TIMEZONE = os.getenv("TIMEZONE", "America/Toronto")
-
-# Database
-DATABASE_PATH = DATA_DIR / "assistant.db"
-
-# Knowledge base
-KNOWLEDGE_BASE_PATH = DATA_DIR / "knowledge_base.md"
 
 # Email settings
 GMAIL_ADDRESS = os.getenv("GMAIL_ADDRESS", "")

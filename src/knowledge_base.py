@@ -1,12 +1,16 @@
 """Knowledge base management for storing user prompts and memories."""
-import json
 import random
 import re
-from datetime import datetime
-from pathlib import Path
-from typing import Optional, List, Dict, Any, Tuple
+from datetime import datetime, timezone
+from typing import Optional, List, Dict, Tuple
 
-from src.config import DATA_DIR, KNOWLEDGE_BASE_PATH
+from src.database import (
+    SessionLocal,
+    KnowledgeBaseEntry,
+    KnowledgeBaseBackup,
+    Reminder,
+    CrucialEvent,
+)
 from src.logging_utils import get_logger
 
 logger = get_logger(__name__)
@@ -48,37 +52,7 @@ def resolve_crucial_event_date(date_str: str, year: int = None) -> Optional[str]
     return None
 
 
-class KnowledgeBase:
-    """Manages the knowledge base - a markdown-based memory system."""
-    
-    def __init__(self, user_email: str):
-        """Initialize knowledge base for a user."""
-        logger.info(f"Initializing knowledge base for: {user_email}")
-        
-        self.user_email = user_email
-        self.user_dir = DATA_DIR / "users" / user_email.replace("@", "_at_").replace(".", "_")
-        self.user_dir.mkdir(parents=True, exist_ok=True)
-        
-        self.kb_file = self.user_dir / "knowledge_base.md"
-        self.reminders_file = self.user_dir / "reminders.json"
-        self.crucial_events_file = self.user_dir / "crucial_events.json"
-        
-        logger.info(f"Knowledge base path: {self.kb_file}")
-        
-        # Initialize files if they don't exist
-        if not self.kb_file.exists():
-            logger.info("Knowledge base file not found, creating from template")
-            self._init_knowledge_base()
-        if not self.reminders_file.exists():
-            logger.info("Reminders file not found, creating empty")
-            self._init_reminders()
-        if not self.crucial_events_file.exists():
-            logger.info("Crucial events file not found, creating with defaults")
-            self._init_crucial_events()
-    
-    def _init_knowledge_base(self):
-        """Initialize the knowledge base with a template."""
-        template = """# Personal Knowledge Base
+DEFAULT_KB_TEMPLATE = """# Personal Knowledge Base
 
 ## About Me
 <!-- Add information about yourself that the assistant should know -->
@@ -94,72 +68,102 @@ I like efficiency and impact.
 
 
 """
-        self.kb_file.write_text(template)
-    
-    def _init_reminders(self):
-        """Initialize the reminders file (personal + professional for daily brief)."""
-        initial_reminders = {
-            "personal": [],
-            "professional": [],
-        }
-        with open(self.reminders_file, "w") as f:
-            json.dump(initial_reminders, f, indent=2)
 
-    def _init_crucial_events(self):
+DEFAULT_CRUCIAL_EVENTS = [
+    {"name": "Valentine's Day", "date": "02-14"},
+    {"name": "Father's Day", "date": "06-3rd-sun"},
+    {"name": "Mother's Day", "date": "05-2nd-sun"},
+]
+
+
+class KnowledgeBase:
+    """Manages the knowledge base - a markdown-based memory system."""
+
+    def __init__(self, user_email: str):
+        """Initialize knowledge base for a user."""
+        logger.info(f"Initializing knowledge base for: {user_email}")
+        self.user_email = user_email
+
+        with SessionLocal() as session:
+            # Initialize KB entry if missing
+            kb = session.query(KnowledgeBaseEntry).filter_by(user_email=user_email).first()
+            if not kb:
+                logger.info("Knowledge base not found, creating from template")
+                self._init_knowledge_base(session)
+
+            # Initialize crucial events if none exist
+            has_events = session.query(CrucialEvent).filter_by(user_email=user_email).first()
+            if not has_events:
+                logger.info("Crucial events not found, creating defaults")
+                self._init_crucial_events(session)
+
+            session.commit()
+
+    def _init_knowledge_base(self, session):
+        """Initialize the knowledge base with a template."""
+        session.add(KnowledgeBaseEntry(
+            user_email=self.user_email,
+            content=DEFAULT_KB_TEMPLATE,
+        ))
+
+    def _init_crucial_events(self, session):
         """Initialize crucial calendar events (all-day, recurring, won't block meetings)."""
-        default_events = [
-            {"name": "Paul's Birthday", "date": "02-05"},
-            {"name": "Mom's Birthday", "date": "01-21"},
-            {"name": "Anniversary", "date": "01-23"},
-            {"name": "Wedding Anniversary", "date": "06-26"},
-            {"name": "Kennedy Birthday", "date": "09-20"},
-            {"name": "Valentine's Day", "date": "02-14"},
-            {"name": "Shaun's Birthday", "date": "03-01"},
-            {"name": "Maddy's Birthday", "date": "10-09"},
-            {"name": "Dad's Birthday", "date": "11-26"},
-            {"name": "Father's Day", "date": "06-3rd-sun"},
-            {"name": "Mother's Day", "date": "05-2nd-sun"},
-        ]
-        self.crucial_events_file.write_text(json.dumps({"events": default_events}, indent=2))
-    
+        for event in DEFAULT_CRUCIAL_EVENTS:
+            session.add(CrucialEvent(
+                user_email=self.user_email,
+                name=event["name"],
+                date=event["date"],
+            ))
+
     def get_knowledge_base(self) -> str:
         """Get the full knowledge base content."""
-        if self.kb_file.exists():
-            content = self.kb_file.read_text()
-            logger.info(f"Knowledge base loaded ({len(content)} chars)")
-            return content
-        logger.warning("Knowledge base file not found")
+        with SessionLocal() as session:
+            kb = session.query(KnowledgeBaseEntry).filter_by(user_email=self.user_email).first()
+            if kb:
+                logger.info(f"Knowledge base loaded ({len(kb.content)} chars)")
+                return kb.content
+        logger.warning("Knowledge base entry not found")
         return ""
-    
+
     def update_knowledge_base(self, content: str) -> bool:
         """Update the entire knowledge base content."""
         logger.info(f"Updating knowledge base ({len(content)} chars)")
         try:
-            # Create backup
-            if self.kb_file.exists():
-                backup_file = self.user_dir / f"knowledge_base_backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}.md"
-                backup_file.write_text(self.kb_file.read_text())
-                logger.info(f"Backup created: {backup_file.name}")
-            
-            self.kb_file.write_text(content)
+            with SessionLocal() as session:
+                kb = session.query(KnowledgeBaseEntry).filter_by(user_email=self.user_email).first()
+
+                # Create backup of current content
+                if kb:
+                    session.add(KnowledgeBaseBackup(
+                        user_email=self.user_email,
+                        content=kb.content,
+                    ))
+                    kb.content = content
+                else:
+                    session.add(KnowledgeBaseEntry(
+                        user_email=self.user_email,
+                        content=content,
+                    ))
+
+                session.commit()
             logger.info("Knowledge base updated successfully")
             return True
         except Exception as e:
             logger.error(f"Error updating knowledge base: {e}")
             return False
-    
+
     def append_to_knowledge_base(self, section: str, content: str) -> bool:
         """Append content to a specific section of the knowledge base."""
         try:
             kb_content = self.get_knowledge_base()
-            
+
             # Find the section
             section_header = f"## {section}"
             if section_header in kb_content:
                 # Find the next section or end of file
                 section_start = kb_content.find(section_header)
                 next_section = kb_content.find("\n## ", section_start + len(section_header))
-                
+
                 if next_section == -1:
                     # Append to end
                     new_content = kb_content + f"\n{content}\n"
@@ -173,50 +177,45 @@ I like efficiency and impact.
             else:
                 # Add new section
                 new_content = kb_content + f"\n{section_header}\n{content}\n"
-            
+
             return self.update_knowledge_base(new_content)
         except Exception as e:
             print(f"Error appending to knowledge base: {e}")
             return False
-    
+
     def get_reminders(self) -> Dict[str, List[str]]:
         """Get all daily reminders (personal + professional)."""
-        if self.reminders_file.exists():
-            try:
-                data = json.loads(self.reminders_file.read_text())
-                # Migrate old format to new
-                if "daily_reminders" in data:
-                    # Migrate: extract text from old reminder objects
-                    personal = []
-                    professional = []
-                    for r in data.get("daily_reminders", []):
-                        text = r.get("text", "") if isinstance(r, dict) else str(r)
-                        if text:
-                            professional.append(text)  # Default old daily to professional
-                    migrated = {"personal": personal, "professional": professional}
-                    self.reminders_file.write_text(json.dumps(migrated, indent=2))
-                    return migrated
-                if "personal" in data or "professional" in data:
-                    return {
-                        "personal": data.get("personal", []),
-                        "professional": data.get("professional", []),
-                    }
-            except (json.JSONDecodeError, TypeError):
-                pass
-        return {"personal": [], "professional": []}
+        with SessionLocal() as session:
+            rows = session.query(Reminder).filter_by(user_email=self.user_email).all()
+            result: Dict[str, List[str]] = {"personal": [], "professional": []}
+            for row in rows:
+                if row.category in result:
+                    result[row.category].append(row.text)
+            return result
 
     def add_reminder(self, category: str, text: str) -> bool:
         """Add a reminder (category: 'personal' or 'professional')."""
         if category not in ("personal", "professional"):
             return False
         try:
-            reminders = self.get_reminders()
             text = text.strip()
-            if text and text not in reminders[category]:
-                reminders[category].append(text)
-                self.reminders_file.write_text(json.dumps(reminders, indent=2))
-                return True
-            return False
+            if not text:
+                return False
+            with SessionLocal() as session:
+                exists = (
+                    session.query(Reminder)
+                    .filter_by(user_email=self.user_email, category=category, text=text)
+                    .first()
+                )
+                if exists:
+                    return False
+                session.add(Reminder(
+                    user_email=self.user_email,
+                    category=category,
+                    text=text,
+                ))
+                session.commit()
+            return True
         except Exception as e:
             logger.error(f"Error adding reminder: {e}")
             return False
@@ -226,11 +225,17 @@ I like efficiency and impact.
         if category not in ("personal", "professional"):
             return False
         try:
-            reminders = self.get_reminders()
-            if 0 <= index < len(reminders[category]):
-                reminders[category].pop(index)
-                self.reminders_file.write_text(json.dumps(reminders, indent=2))
-                return True
+            with SessionLocal() as session:
+                rows = (
+                    session.query(Reminder)
+                    .filter_by(user_email=self.user_email, category=category)
+                    .order_by(Reminder.id)
+                    .all()
+                )
+                if 0 <= index < len(rows):
+                    session.delete(rows[index])
+                    session.commit()
+                    return True
             return False
         except Exception as e:
             logger.error(f"Error removing reminder: {e}")
@@ -245,22 +250,32 @@ I like efficiency and impact.
 
     def get_crucial_events(self) -> List[Dict[str, str]]:
         """Get crucial calendar events."""
-        if self.crucial_events_file.exists():
-            try:
-                data = json.loads(self.crucial_events_file.read_text())
-                return data.get("events", [])
-            except (json.JSONDecodeError, TypeError):
-                pass
-        return []
+        with SessionLocal() as session:
+            rows = (
+                session.query(CrucialEvent)
+                .filter_by(user_email=self.user_email)
+                .order_by(CrucialEvent.id)
+                .all()
+            )
+            return [{"name": r.name, "date": r.date} for r in rows]
 
     def add_crucial_event(self, name: str, date: str) -> bool:
         """Add a crucial event. Date: MM-DD for fixed, or MM-Nth-sun for floating (e.g. 05-2nd-sun)."""
         try:
-            events = self.get_crucial_events()
-            if any(e["name"] == name for e in events):
-                return False
-            events.append({"name": name, "date": date})
-            self.crucial_events_file.write_text(json.dumps({"events": events}, indent=2))
+            with SessionLocal() as session:
+                exists = (
+                    session.query(CrucialEvent)
+                    .filter_by(user_email=self.user_email, name=name)
+                    .first()
+                )
+                if exists:
+                    return False
+                session.add(CrucialEvent(
+                    user_email=self.user_email,
+                    name=name,
+                    date=date,
+                ))
+                session.commit()
             return True
         except Exception as e:
             logger.error(f"Error adding crucial event: {e}")
@@ -269,11 +284,17 @@ I like efficiency and impact.
     def remove_crucial_event(self, index: int) -> bool:
         """Remove crucial event by index."""
         try:
-            events = self.get_crucial_events()
-            if 0 <= index < len(events):
-                events.pop(index)
-                self.crucial_events_file.write_text(json.dumps({"events": events}, indent=2))
-                return True
+            with SessionLocal() as session:
+                rows = (
+                    session.query(CrucialEvent)
+                    .filter_by(user_email=self.user_email)
+                    .order_by(CrucialEvent.id)
+                    .all()
+                )
+                if 0 <= index < len(rows):
+                    session.delete(rows[index])
+                    session.commit()
+                    return True
             return False
         except Exception as e:
             logger.error(f"Error removing crucial event: {e}")
@@ -282,12 +303,12 @@ I like efficiency and impact.
     def get_daily_brief_context(self) -> str:
         """Get knowledge base content for context (reminders are separate, managed in Daily Brief settings)."""
         return self.get_knowledge_base()
-    
+
     def search_knowledge_base(self, query: str) -> List[str]:
         """Search the knowledge base for relevant content."""
         kb_content = self.get_knowledge_base()
         lines = kb_content.split("\n")
-        
+
         results = []
         for i, line in enumerate(lines):
             if query.lower() in line.lower():
@@ -296,5 +317,5 @@ I like efficiency and impact.
                 end = min(len(lines), i + 3)
                 context = "\n".join(lines[start:end])
                 results.append(context)
-        
+
         return results

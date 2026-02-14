@@ -4,7 +4,6 @@ from typing import Optional
 from datetime import datetime
 import pytz
 from agno.db.postgres import PostgresDb
-from decouple import config
 from agno.agent import Agent
 from agno.models.openai import OpenAIChat
 from agno.models.anthropic import Claude
@@ -15,13 +14,12 @@ from agno.learn.config import (
     SessionContextConfig,
     EntityMemoryConfig,
 )
-from sqlalchemy import text
-
 from src.config import (
     LLM_PROVIDER,
     LLM_MODEL,
     TIMEZONE,
 )
+from src.database import DATABASE_URL, init_db
 from src.knowledge_base import KnowledgeBase
 from src.logging_utils import get_logger
 from src.tools import (
@@ -57,10 +55,10 @@ def get_llm_model():
         return OpenAIChat(id="gpt-4o-mini")
 
 # ------------database / storage / setup
-db_url = f"postgresql+psycopg://{config('POSTGRES_USER')}:{config('POSTGRES_PASSWORD')}@{config('POSTGRES_HOST')}/{config('POSTGRES_DB')}"
+init_db()
 
 team_storage = PostgresDb(
-    db_url=db_url
+    db_url=DATABASE_URL
 )
 
 ASSISTANT_INSTRUCTIONS = dedent("""
