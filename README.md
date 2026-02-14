@@ -1,209 +1,156 @@
-# 🤖 AI Assistant
+# AI Assistant
 
 A personal AI assistant with a Streamlit frontend that helps you manage your calendar, maintain a knowledge base, and stay organized with daily reminders.
 
 ## Features
 
-### 📅 Calendar Management
-- **View Events**: See your upcoming Google Calendar events
-- **Add Events**: Create new calendar events with natural language
-- **Recurring Birthdays**: Add yearly birthday reminders that repeat automatically
-- **Interview Scheduling**: Book interviews with multiple attendees and find available time slots
+- **Calendar Management** -- View, create, and manage Google Calendar events via natural language
+- **Knowledge Base** -- Markdown-based personal memory the AI uses for context
+- **Daily Briefs & Reminders** -- Automated morning summaries with calendar highlights and custom reminders
+- **AI Chat** -- Context-aware conversation using your calendar and knowledge base
 
-### 🧠 Knowledge Base
-- **Personal Memory**: Store information about yourself, important people, work context, and preferences
-- **Markdown-based**: Edit your knowledge base in a simple markdown format
-- **Contextual Responses**: The AI uses your knowledge base to provide personalized responses
+## Local Development
 
-### ⏰ Daily Briefs & Reminders
-- **Morning Brief**: Get a personalized daily summary of your calendar and reminders
-- **Calendar Analysis**: AI reviews your schedule and suggests what might be missing
-- **Custom Reminders**: Add daily, recurring, or one-time reminders
+### Prerequisites
 
-### 💬 AI Chat
-- **Natural Language**: Chat naturally with your assistant
-- **Context-Aware**: Responses consider your calendar and knowledge base
-- **Smart Updates**: Automatically update your knowledge base from conversation
+- [uv](https://docs.astral.sh/uv/) (Python package manager)
+- [Docker](https://docs.docker.com/get-docker/) & Docker Compose
+- A Google Cloud project with the Calendar API enabled and OAuth 2.0 credentials
 
-## Quick Start
-
-### 1. Clone and Install
+### 1. Configure environment
 
 ```bash
-git clone https://github.com/yourusername/ai-assistant.git
-cd ai-assistant
-
-# Install dependencies with uv
-uv sync
-```
-
-### 2. Configure Environment
-
-```bash
-# Copy the example env file
 cp .env.example .env
-
-# Edit with your credentials
-nano .env  # or open in your editor
 ```
 
-### 3. Set Up Google OAuth
+Edit `.env` and fill in:
 
-1. Go to [Google Cloud Console](https://console.cloud.google.com)
-2. Create a new project or select an existing one
-3. Enable the **Google Calendar API**
-4. Go to **Credentials** → **Create Credentials** → **OAuth 2.0 Client ID**
-5. Select **Web application** as the application type
-6. Add `http://localhost:8501` to **Authorized redirect URIs**
-7. Copy the **Client ID** and **Client Secret** to your `.env` file
+| Variable | Description |
+|----------|-------------|
+| `GOOGLE_CLIENT_ID` | OAuth 2.0 Client ID from [Google Cloud Console](https://console.cloud.google.com) |
+| `GOOGLE_CLIENT_SECRET` | OAuth 2.0 Client Secret |
+| `GOOGLE_REDIRECT_URI` | `http://localhost:8501` for local dev |
+| `LLM_PROVIDER` | `anthropic` or `openai` |
+| `ANTHROPIC_API_KEY` | API key from [console.anthropic.com](https://console.anthropic.com) (if using Anthropic) |
+| `OPENAI_API_KEY` | API key from [platform.openai.com](https://platform.openai.com) (if using OpenAI) |
+| `POSTGRES_USER` | Postgres username (default: `assistant`) |
+| `POSTGRES_PASSWORD` | Postgres password (default: `assistant`) |
+| `POSTGRES_HOST` | `postgres` when using Docker Compose, `localhost` when running outside Docker |
+| `POSTGRES_DB` | Postgres database name (default: `assistant`) |
 
-### 4. Set Up LLM API
+The remaining variables (`TIMEZONE`, `LLM_MODEL`, `GMAIL_*`, `BRIEF_*`, `USER_EMAIL`) have sensible defaults -- see `.env.example` for details.
 
-Choose either Anthropic or OpenAI:
-
-**Anthropic (Claude):**
-1. Get an API key from [console.anthropic.com](https://console.anthropic.com)
-2. Add to `.env`: `ANTHROPIC_API_KEY=sk-ant-...`
-3. Set `LLM_PROVIDER=anthropic`
-
-**OpenAI (GPT):**
-1. Get an API key from [platform.openai.com](https://platform.openai.com)
-2. Add to `.env`: `OPENAI_API_KEY=sk-...`
-3. Set `LLM_PROVIDER=openai`
-
-### 5. Run the App
+### 2a. Run with Docker Compose (recommended)
 
 ```bash
-uv run streamlit run app.py
+docker compose up --build
 ```
 
-The app will open in your browser at `http://localhost:8501`
+This starts three services:
 
-## Usage
+- **app** -- Streamlit UI at `http://localhost:8501`
+- **scheduler** -- Background job that emails a daily brief
+- **postgres** -- PostgreSQL 16 database
 
-### First Time Setup
+To run just the app without the scheduler:
 
-1. Click **Sign in with Google** to authenticate
-2. Grant calendar permissions when prompted
-3. You'll be redirected back to the app
+```bash
+docker compose up --build app postgres
+```
 
-### Chat with Assistant
+### 2b. Run without Docker
 
-Use natural language to:
-- "What's on my calendar today?"
-- "Add Mom's birthday on March 15th every year"
-- "Schedule an interview with John for tomorrow at 2pm with alice@company.com and bob@company.com"
-- "Remember that my partner is allergic to shellfish"
-- "What am I missing this week?"
+If you prefer to use your own Postgres instance:
 
-### Manage Knowledge Base
+```bash
+# Set POSTGRES_HOST=localhost (or your DB host) in .env
+uv sync
 
-1. Go to **🧠 Knowledge Base**
-2. Edit the markdown content to add:
-   - Information about yourself
-   - Important people and their details
-   - Work context
-   - Preferences
-   - Custom reminders
+# Run the Streamlit app
+uv run streamlit run app.py
 
-### Get Daily Brief
+# (Optional) Run the scheduler in a separate terminal
+uv run python -m src.scheduler
+```
 
-1. Go to **📊 Daily Brief**
-2. Click **Generate Today's Brief** for a personalized summary
-3. Click **Analyze My Calendar** for suggestions on what might be missing
+### 3. First-time setup
+
+1. Open `http://localhost:8501`
+2. Click **Sign in with Google** and grant calendar permissions
+3. You'll be redirected back to the app -- your session is now stored in Postgres
+
+## Deploying to Railway
+
+Railway lets you run each service with its own process, all sharing a single Postgres database.
+
+### 1. Create the project
+
+1. Push this repo to GitHub
+2. Go to [railway.app](https://railway.app) and create a new project
+3. Add a **PostgreSQL** plugin -- Railway provisions the database and sets connection variables automatically
+
+### 2. Deploy the Streamlit app
+
+1. Click **New Service** -> **GitHub Repo** and select this repo
+2. Under **Settings** -> **Networking**, add a public domain (e.g. `your-app.up.railway.app`)
+3. The default `Dockerfile` CMD runs the Streamlit app -- no changes needed
+4. Set these environment variables (in **Variables**):
+
+| Variable | Value |
+|----------|-------|
+| `GOOGLE_CLIENT_ID` | Your OAuth Client ID |
+| `GOOGLE_CLIENT_SECRET` | Your OAuth Client Secret |
+| `GOOGLE_REDIRECT_URI` | `https://your-app.up.railway.app` |
+| `LLM_PROVIDER` | `anthropic` or `openai` |
+| `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` | Your LLM API key |
+| `POSTGRES_USER` | From Railway Postgres plugin (use variable reference `${{Postgres.PGUSER}}`) |
+| `POSTGRES_PASSWORD` | `${{Postgres.PGPASSWORD}}` |
+| `POSTGRES_HOST` | `${{Postgres.PGHOST}}` |
+| `POSTGRES_DB` | `${{Postgres.PGDATABASE}}` |
+
+5. Update your Google Cloud Console to add the Railway domain to **Authorized redirect URIs**
+
+### 3. Deploy the scheduler
+
+1. Click **New Service** -> **GitHub Repo** and select the same repo again
+2. Under **Settings** -> **Deploy**, set the **Custom Start Command** to:
+   ```
+   uv run python -m src.scheduler
+   ```
+3. No public domain needed -- the scheduler only makes outbound requests
+4. Copy the same environment variables from the app service (or use shared variables)
+5. Additionally set:
+
+| Variable | Value |
+|----------|-------|
+| `USER_EMAIL` | Email address to send briefs to |
+| `GMAIL_ADDRESS` | Gmail address for sending |
+| `GMAIL_APP_PASSWORD` | Gmail app password ([generate one here](https://myaccount.google.com/apppasswords)) |
+| `BRIEF_HOUR` | Hour to send brief (0-23, default: 8) |
+| `BRIEF_MINUTE` | Minute to send brief (0-59, default: 0) |
+
+Both services share the same Postgres database, so OAuth tokens, knowledge base, and reminders are accessible from either service.
 
 ## Project Structure
 
 ```
 ai-assistant/
-├── app.py                  # Main Streamlit application
-├── pyproject.toml         # Python dependencies (uv)
-├── uv.lock                # Locked dependencies
-├── .env.example           # Example environment variables
-├── data/                  # User data storage
-│   ├── users/            # Per-user knowledge bases
-│   └── tokens/           # OAuth tokens
+├── app.py                  # Streamlit application
+├── Dockerfile              # Container image
+├── docker-compose.yml      # Local dev (app + scheduler + postgres)
+├── pyproject.toml          # Dependencies (uv)
+├── .env.example            # Environment variable template
 └── src/
-    ├── __init__.py
-    ├── config.py          # Configuration management
-    ├── assistant.py       # AI assistant core logic
-    ├── knowledge_base.py  # Knowledge base management
-    ├── scheduler.py       # Background scheduler for reminders
+    ├── config.py           # Configuration
+    ├── database.py         # SQLAlchemy models and engine
+    ├── assistant.py        # AI assistant (Agno framework)
+    ├── knowledge_base.py   # Knowledge base CRUD
+    ├── scheduler.py        # Background daily brief scheduler
+    ├── tools.py            # Agno tool definitions (calendar ops)
     └── integrations/
-        ├── __init__.py
-        ├── google_auth.py # Google OAuth handling
-        └── calendar.py    # Google Calendar integration
+        ├── google_auth.py  # Google OAuth flow
+        └── calendar.py     # Google Calendar API wrapper
 ```
-
-## Background Scheduler (Optional)
-
-To run daily briefs automatically:
-
-```bash
-# Set the time for daily briefs
-export BRIEF_HOUR=7
-export BRIEF_MINUTE=0
-
-# Run the scheduler
-uv run python -m src.scheduler
-```
-
-Or add to your crontab:
-```cron
-0 7 * * * cd /path/to/ai-assistant && uv run python -m src.scheduler
-```
-
-## Environment Variables
-
-| Variable | Description | Required |
-|----------|-------------|----------|
-| `GOOGLE_CLIENT_ID` | Google OAuth Client ID | Yes |
-| `GOOGLE_CLIENT_SECRET` | Google OAuth Client Secret | Yes |
-| `GOOGLE_REDIRECT_URI` | OAuth redirect URI (default: http://localhost:8501) | No |
-| `LLM_PROVIDER` | "anthropic" or "openai" | Yes |
-| `ANTHROPIC_API_KEY` | Anthropic API key | If using Anthropic |
-| `OPENAI_API_KEY` | OpenAI API key | If using OpenAI |
-| `LLM_MODEL` | Model name | No (has defaults) |
-| `TIMEZONE` | Your timezone (default: America/Toronto) | No |
-| `BRIEF_HOUR` | Hour for daily brief (0-23) | No |
-| `BRIEF_MINUTE` | Minute for daily brief (0-59) | No |
-
-## Deployment
-
-### Docker
-
-```dockerfile
-FROM python:3.11-slim
-
-WORKDIR /app
-
-# Install uv
-RUN pip install uv
-
-COPY pyproject.toml uv.lock ./
-RUN uv sync --frozen
-
-COPY . .
-
-EXPOSE 8501
-CMD ["uv", "run", "streamlit", "run", "app.py", "--server.port=8501", "--server.address=0.0.0.0"]
-```
-
-### Streamlit Cloud
-
-1. Push your code to GitHub
-2. Connect to [Streamlit Cloud](https://streamlit.io/cloud)
-3. Add your environment variables as secrets
-4. Deploy!
-
-**Note:** For production, update `GOOGLE_REDIRECT_URI` to your deployed URL.
-
-## Security Notes
-
-- OAuth tokens are stored locally in `data/tokens/`
-- API keys should be kept in `.env` (not committed to git)
-- The `.env` file is in `.gitignore` by default
-- For production, use proper secrets management
 
 ## License
 
