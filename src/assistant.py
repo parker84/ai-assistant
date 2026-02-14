@@ -233,6 +233,14 @@ class AIAssistant:
         # Pick one random personal and one random professional reminder
         personal_reminder, professional_reminder = self.knowledge_base.get_random_daily_reminders()
         
+        # Crucial events for context (birthdays, anniversaries, etc.)
+        crucial_events = self.knowledge_base.get_crucial_events()
+        crucial_section = ""
+        if crucial_events:
+            crucial_section = "CRUCIAL EVENTS TO WATCH FOR (from user's list):\n" + "\n".join(
+                f"- {e['name']}: {e['date']}" for e in crucial_events
+            ) + "\n\n"
+        
         reminders_section = ""
         if personal_reminder or professional_reminder:
             reminders_section = "INCLUDE THESE REMINDERS in the correct sections:\n"
@@ -246,6 +254,7 @@ class AIAssistant:
             
             Use get_todays_events and get_upcoming_events(days=30) to check my calendar.
             
+            {crucial_section}
             CRITICAL - ONLY mention these calendar items (skip the rest):
             - Big personal dates: Today is X's birthday, Today is our anniversary, Valentine's Day is Saturday
             - Important work events: Team offsite in 3 weeks (add note if relevant - e.g. "don't forget to let Kennedy know")

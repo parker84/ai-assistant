@@ -19,6 +19,7 @@ from src.integrations.calendar import (
     create_interview_event,
     find_free_slots,
 )
+from src.tools import set_credentials, create_recurring_all_day_event
 from src.knowledge_base import KnowledgeBase
 from src.assistant import AIAssistant
 from src.logging_utils import get_logger
@@ -420,6 +421,9 @@ def render_daily_brief_page():
     st.title("📊 Daily Brief")
     
     kb = st.session_state.knowledge_base
+    credentials = None
+    if st.session_state.get("google_credentials"):
+        credentials = get_credentials_from_tokens(st.session_state["google_credentials"])
     
     # Settings expander: Personal & Professional reminders
     if not kb:
@@ -462,6 +466,43 @@ def render_daily_brief_page():
             if st.button("Add", key="add_professional") and new_professional:
                 kb.add_reminder("professional", new_professional)
                 st.rerun()
+
+    with st.expander("📆 Crucial Calendar Events", expanded=False):
+        st.caption("Recurring all-day events (birthdays, anniversaries). Won't block meetings.")
+        
+        crucial_events = kb.get_crucial_events()
+        
+        for i, ev in enumerate(crucial_events):
+            ec1, ec2, ec3 = st.columns([3, 2, 1])
+            with ec1:
+                st.text(ev["name"])
+            with ec2:
+                st.caption(ev["date"])
+            with ec3:
+                if st.button("🗑️", key=f"del_crucial_{i}"):
+                    kb.remove_crucial_event(i)
+                    st.rerun()
+        
+        col_a, col_b = st.columns(2)
+        with col_a:
+            new_name = st.text_input("Event name", key="new_crucial_name", placeholder="e.g. Mom's Birthday")
+        with col_b:
+            new_date = st.text_input("Date (MM-DD or 05-2nd-sun)", key="new_crucial_date", placeholder="e.g. 01-21 or 05-2nd-sun")
+        if st.button("Add event", key="add_crucial") and new_name and new_date:
+            kb.add_crucial_event(new_name, new_date)
+            st.rerun()
+        
+        if credentials and crucial_events:
+            st.divider()
+            if st.button("➕ Add all to Google Calendar", key="sync_crucial_to_calendar"):
+                set_credentials(credentials)
+                results = []
+                for ev in crucial_events:
+                    r = create_recurring_all_day_event(ev["name"], ev["date"])
+                    results.append(f"{ev['name']}: {r}")
+                st.success("Synced!")
+                for r in results:
+                    st.caption(r)
     
     st.divider()
     

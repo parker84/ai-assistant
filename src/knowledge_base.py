@@ -1,6 +1,7 @@
 """Knowledge base management for storing user prompts and memories."""
 import json
 import random
+import re
 from datetime import datetime
 from pathlib import Path
 from typing import Optional, List, Dict, Any, Tuple
@@ -9,6 +10,42 @@ from src.config import DATA_DIR, KNOWLEDGE_BASE_PATH
 from src.logging_utils import get_logger
 
 logger = get_logger(__name__)
+
+
+def resolve_crucial_event_date(date_str: str, year: int = None) -> Optional[str]:
+    """Convert date string to YYYY-MM-DD. Handles MM-DD and MM-Nth-sun (e.g. 05-2nd-sun)."""
+    year = year or datetime.now().year
+    date_str = date_str.strip().lower()
+
+    # Fixed: MM-DD
+    match = re.match(r"^(\d{1,2})-(\d{1,2})$", date_str)
+    if match:
+        month, day = int(match.group(1)), int(match.group(2))
+        try:
+            d = datetime(year, month, day)
+            return d.strftime("%Y-%m-%d")
+        except ValueError:
+            return None
+
+    # Floating: MM-Nth-sun (e.g. 05-2nd-sun, 06-3rd-sun)
+    match = re.match(r"^(\d{1,2})-(\d+)(?:st|nd|rd|th)-sun$", date_str)
+    if match:
+        month = int(match.group(1))
+        week_num = int(match.group(2))  # 1st, 2nd, 3rd, etc.
+        # Find Nth Sunday of month (weekday 6 = Sunday in Python)
+        first = datetime(year, month, 1)
+        days_until_first_sunday = (6 - first.weekday()) % 7
+        if first.weekday() == 6:
+            days_until_first_sunday = 0  # First day is Sunday
+        first_sunday_day = 1 + days_until_first_sunday
+        nth_sunday_day = first_sunday_day + (week_num - 1) * 7
+        try:
+            d = datetime(year, month, nth_sunday_day)
+            return d.strftime("%Y-%m-%d")
+        except ValueError:
+            return None
+
+    return None
 
 
 class KnowledgeBase:
@@ -24,6 +61,7 @@ class KnowledgeBase:
         
         self.kb_file = self.user_dir / "knowledge_base.md"
         self.reminders_file = self.user_dir / "reminders.json"
+        self.crucial_events_file = self.user_dir / "crucial_events.json"
         
         logger.info(f"Knowledge base path: {self.kb_file}")
         
@@ -34,6 +72,9 @@ class KnowledgeBase:
         if not self.reminders_file.exists():
             logger.info("Reminders file not found, creating empty")
             self._init_reminders()
+        if not self.crucial_events_file.exists():
+            logger.info("Crucial events file not found, creating with defaults")
+            self._init_crucial_events()
     
     def _init_knowledge_base(self):
         """Initialize the knowledge base with a template."""
@@ -63,6 +104,23 @@ I like efficiency and impact.
         }
         with open(self.reminders_file, "w") as f:
             json.dump(initial_reminders, f, indent=2)
+
+    def _init_crucial_events(self):
+        """Initialize crucial calendar events (all-day, recurring, won't block meetings)."""
+        default_events = [
+            {"name": "Paul's Birthday", "date": "02-05"},
+            {"name": "Mom's Birthday", "date": "01-21"},
+            {"name": "Anniversary", "date": "01-23"},
+            {"name": "Wedding Anniversary", "date": "06-26"},
+            {"name": "Kennedy Birthday", "date": "09-20"},
+            {"name": "Valentine's Day", "date": "02-14"},
+            {"name": "Shaun's Birthday", "date": "03-01"},
+            {"name": "Maddy's Birthday", "date": "10-09"},
+            {"name": "Dad's Birthday", "date": "11-26"},
+            {"name": "Father's Day", "date": "06-3rd-sun"},
+            {"name": "Mother's Day", "date": "05-2nd-sun"},
+        ]
+        self.crucial_events_file.write_text(json.dumps({"events": default_events}, indent=2))
     
     def get_knowledge_base(self) -> str:
         """Get the full knowledge base content."""
@@ -184,6 +242,42 @@ I like efficiency and impact.
         personal = random.choice(reminders["personal"]) if reminders["personal"] else None
         professional = random.choice(reminders["professional"]) if reminders["professional"] else None
         return personal, professional
+
+    def get_crucial_events(self) -> List[Dict[str, str]]:
+        """Get crucial calendar events."""
+        if self.crucial_events_file.exists():
+            try:
+                data = json.loads(self.crucial_events_file.read_text())
+                return data.get("events", [])
+            except (json.JSONDecodeError, TypeError):
+                pass
+        return []
+
+    def add_crucial_event(self, name: str, date: str) -> bool:
+        """Add a crucial event. Date: MM-DD for fixed, or MM-Nth-sun for floating (e.g. 05-2nd-sun)."""
+        try:
+            events = self.get_crucial_events()
+            if any(e["name"] == name for e in events):
+                return False
+            events.append({"name": name, "date": date})
+            self.crucial_events_file.write_text(json.dumps({"events": events}, indent=2))
+            return True
+        except Exception as e:
+            logger.error(f"Error adding crucial event: {e}")
+            return False
+
+    def remove_crucial_event(self, index: int) -> bool:
+        """Remove crucial event by index."""
+        try:
+            events = self.get_crucial_events()
+            if 0 <= index < len(events):
+                events.pop(index)
+                self.crucial_events_file.write_text(json.dumps({"events": events}, indent=2))
+                return True
+            return False
+        except Exception as e:
+            logger.error(f"Error removing crucial event: {e}")
+            return False
 
     def get_daily_brief_context(self) -> str:
         """Get knowledge base content for context (reminders are separate, managed in Daily Brief settings)."""

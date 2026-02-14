@@ -413,6 +413,42 @@ def create_birthday_reminder(
         return f"❌ Failed to create birthday reminder: {str(e)}"
 
 
+def create_recurring_all_day_event(title: str, date_str: str) -> str:
+    """
+    Create a recurring yearly all-day event. Used for crucial events (birthdays, anniversaries, etc).
+    All-day events don't block meeting slots.
+    """
+    logger.info(f"=== CREATE RECURRING ALL-DAY: {title} on {date_str} ===")
+    try:
+        from src.knowledge_base import resolve_crucial_event_date
+        from datetime import datetime as dt
+
+        resolved = resolve_crucial_event_date(date_str)
+        if not resolved:
+            return f"❌ Could not parse date: {date_str}"
+
+        service = _get_calendar_service()
+        event_date = dt.strptime(resolved, "%Y-%m-%d")
+        start_date_str = event_date.strftime("%Y-%m-%d")
+        end_date = event_date + timedelta(days=1)
+        end_date_str = end_date.strftime("%Y-%m-%d")
+
+        event = {
+            "summary": title,
+            "description": f"Recurring reminder",
+            "start": {"date": start_date_str},
+            "end": {"date": end_date_str},
+            "recurrence": ["RRULE:FREQ=YEARLY"],
+        }
+
+        created_event = service.events().insert(calendarId="primary", body=event).execute()
+        logger.info(f"Created: {created_event.get('id')}")
+        return f"✅ Added to calendar: {title}"
+    except Exception as e:
+        logger.error(f"Failed: {e}")
+        return f"❌ Failed: {str(e)}"
+
+
 @tool
 def schedule_interview(
     candidate_name: str,
