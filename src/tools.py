@@ -14,6 +14,7 @@ logger = get_logger(__name__)
 
 # Module-level credentials storage - set this before using tools
 _credentials = None
+_knowledge_base = None
 
 
 def set_credentials(credentials):
@@ -29,6 +30,21 @@ def get_credentials():
     if _credentials is None:
         logger.error("Calendar credentials not set!")
     return _credentials
+
+
+def set_knowledge_base(kb):
+    """Set the KnowledgeBase instance for reminder tools."""
+    global _knowledge_base
+    _knowledge_base = kb
+    logger.info("Knowledge base set for tools")
+
+
+def _get_knowledge_base():
+    """Get the current KnowledgeBase instance."""
+    global _knowledge_base
+    if _knowledge_base is None:
+        raise Exception("Knowledge base not set. Please authenticate first.")
+    return _knowledge_base
 
 
 def _get_calendar_service():
@@ -645,3 +661,101 @@ def send_email(
         import traceback
         logger.error(f"Traceback: {traceback.format_exc()}")
         return f"❌ Failed to send email: {str(e)}"
+
+
+# =========================
+# Reminder Tools
+# =========================
+
+@tool
+def get_reminders() -> str:
+    """
+    Get all daily reminders (personal and professional).
+
+    WHEN TO USE:
+    - User asks "what are my reminders?"
+    - User wants to see their current reminders
+    - You need to check existing reminders before adding a new one
+
+    RETURNS:
+    - A formatted string listing all personal and professional reminders
+    """
+    logger.info("=== GET REMINDERS ===")
+    try:
+        kb = _get_knowledge_base()
+        reminders = kb.get_reminders()
+
+        lines = []
+        if reminders["professional"]:
+            lines.append("**Professional:**")
+            for i, r in enumerate(reminders["professional"]):
+                lines.append(f"  {i + 1}. {r}")
+        if reminders["personal"]:
+            lines.append("**Personal:**")
+            for i, r in enumerate(reminders["personal"]):
+                lines.append(f"  {i + 1}. {r}")
+
+        if not lines:
+            return "No reminders set."
+
+        return "\n".join(lines)
+
+    except Exception as e:
+        logger.error(f"Failed to get reminders: {e}")
+        return f"Error getting reminders: {str(e)}"
+
+
+@tool
+def add_reminder(category: str, text: str) -> str:
+    """
+    Add a daily reminder.
+
+    WHEN TO USE:
+    - User says "remind me to ..." or "add a reminder for ..."
+    - User wants to set a recurring daily reminder (personal or professional)
+
+    ARGS:
+    - category (str): "personal" or "professional"
+    - text (str): The reminder text
+
+    RETURNS:
+    - Confirmation that the reminder was added
+    """
+    logger.info(f"=== ADD REMINDER: [{category}] {text} ===")
+    try:
+        kb = _get_knowledge_base()
+        if kb.add_reminder(category, text):
+            return f"✅ Added {category} reminder: {text}"
+        return f"Reminder already exists or invalid category. Category must be 'personal' or 'professional'."
+
+    except Exception as e:
+        logger.error(f"Failed to add reminder: {e}")
+        return f"Error adding reminder: {str(e)}"
+
+
+@tool
+def remove_reminder(category: str, index: int) -> str:
+    """
+    Remove a daily reminder by its position number.
+
+    WHEN TO USE:
+    - User wants to delete a specific reminder
+    - User says "remove reminder #2" or "delete the first personal reminder"
+
+    ARGS:
+    - category (str): "personal" or "professional"
+    - index (int): The 0-based index of the reminder to remove (first item = 0)
+
+    RETURNS:
+    - Confirmation that the reminder was removed
+    """
+    logger.info(f"=== REMOVE REMINDER: [{category}] index={index} ===")
+    try:
+        kb = _get_knowledge_base()
+        if kb.remove_reminder(category, index):
+            return f"✅ Removed {category} reminder at position {index + 1}."
+        return f"Could not remove reminder. Check the category and position number."
+
+    except Exception as e:
+        logger.error(f"Failed to remove reminder: {e}")
+        return f"Error removing reminder: {str(e)}"

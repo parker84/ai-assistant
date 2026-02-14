@@ -24,6 +24,7 @@ from src.knowledge_base import KnowledgeBase
 from src.logging_utils import get_logger
 from src.tools import (
     set_credentials,
+    set_knowledge_base,
     get_todays_events,
     get_upcoming_events,
     find_free_time_slots,
@@ -32,12 +33,15 @@ from src.tools import (
     schedule_interview,
     delete_calendar_event,
     send_email,
+    get_reminders,
+    add_reminder,
+    remove_reminder,
 )
 
 logger = get_logger(__name__)
 
 # Agent configuration
-MAX_TOOL_CALLS = 5
+MAX_TOOL_CALLS = 25
 NUM_HISTORY_RUNS = 10
 
 
@@ -123,6 +127,9 @@ class AIAssistant:
         if credentials:
             set_credentials(credentials)
             logger.info("Calendar credentials configured")
+
+        # Set knowledge base for reminder tools
+        set_knowledge_base(self.knowledge_base)
         
         # Build additional context from knowledge base
         kb_content = self.knowledge_base.get_knowledge_base()
@@ -151,6 +158,9 @@ class AIAssistant:
                 schedule_interview,
                 delete_calendar_event,
                 send_email,
+                get_reminders,
+                add_reminder,
+                remove_reminder,
             ],
             instructions=ASSISTANT_INSTRUCTIONS,
             additional_context=self.additional_context,
@@ -319,6 +329,9 @@ class AIAssistant:
                 schedule_interview,
                 delete_calendar_event,
                 send_email,
+                get_reminders,
+                add_reminder,
+                remove_reminder,
             ],
             instructions=ASSISTANT_INSTRUCTIONS,
             additional_context=self.additional_context,
