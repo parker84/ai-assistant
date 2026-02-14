@@ -1,0 +1,15 @@
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.env
+.git/
+.gitignore
+.DS_Store
+*.egg-info/
+data/
+.idea/
+.vscode/
+*.log
+logs/
+CLAUDE.md
