@@ -759,3 +759,134 @@ def remove_reminder(category: str, index: int) -> str:
     except Exception as e:
         logger.error(f"Failed to remove reminder: {e}")
         return f"Error removing reminder: {str(e)}"
+
+
+# =========================
+# Crucial Event Tools
+# =========================
+
+@tool
+def get_crucial_events() -> str:
+    """
+    Get all crucial calendar events (birthdays, anniversaries, etc.).
+
+    WHEN TO USE:
+    - User asks "what crucial events do I have?" or "show my important dates"
+    - You need to check existing crucial events
+
+    RETURNS:
+    - A formatted string listing all crucial events with their dates
+    """
+    logger.info("=== GET CRUCIAL EVENTS ===")
+    try:
+        kb = _get_knowledge_base()
+        events = kb.get_crucial_events()
+
+        if not events:
+            return "No crucial events set."
+
+        lines = ["**Crucial Events:**"]
+        for i, e in enumerate(events):
+            lines.append(f"  {i + 1}. {e['name']} — {e['date']}")
+
+        return "\n".join(lines)
+
+    except Exception as e:
+        logger.error(f"Failed to get crucial events: {e}")
+        return f"Error getting crucial events: {str(e)}"
+
+
+@tool
+def add_crucial_event(name: str, date: str) -> str:
+    """
+    Add a crucial calendar event (birthday, anniversary, holiday, etc.).
+    These are recurring yearly all-day events that won't block meeting slots.
+
+    WHEN TO USE:
+    - User says "add my mom's birthday on January 21st"
+    - User wants to track an important recurring date
+    - User mentions a birthday, anniversary, or holiday to remember
+
+    ARGS:
+    - name (str): The event name (e.g. "Mom's Birthday", "Wedding Anniversary")
+    - date (str): Date in MM-DD format for fixed dates (e.g. "01-21"),
+                  or MM-Nth-sun for floating dates (e.g. "05-2nd-sun" for Mother's Day)
+
+    RETURNS:
+    - Confirmation that the crucial event was added
+    """
+    logger.info(f"=== ADD CRUCIAL EVENT: {name} on {date} ===")
+    try:
+        kb = _get_knowledge_base()
+        if kb.add_crucial_event(name, date):
+            return f"✅ Added crucial event: {name} on {date}"
+        return f"Event '{name}' already exists."
+
+    except Exception as e:
+        logger.error(f"Failed to add crucial event: {e}")
+        return f"Error adding crucial event: {str(e)}"
+
+
+@tool
+def remove_crucial_event(index: int) -> str:
+    """
+    Remove a crucial event by its position number.
+
+    WHEN TO USE:
+    - User wants to delete a crucial event
+    - User says "remove crucial event #3"
+
+    ARGS:
+    - index (int): The 0-based index of the event to remove (first item = 0)
+
+    RETURNS:
+    - Confirmation that the event was removed
+    """
+    logger.info(f"=== REMOVE CRUCIAL EVENT: index={index} ===")
+    try:
+        kb = _get_knowledge_base()
+        if kb.remove_crucial_event(index):
+            return f"✅ Removed crucial event at position {index + 1}."
+        return f"Could not remove event. Check the position number."
+
+    except Exception as e:
+        logger.error(f"Failed to remove crucial event: {e}")
+        return f"Error removing crucial event: {str(e)}"
+
+
+# =========================
+# Daily Brief Tool
+# =========================
+
+# Module-level reference to the assistant instance (set by AIAssistant)
+_assistant = None
+
+
+def set_assistant(assistant):
+    """Set the AIAssistant instance for the daily brief tool."""
+    global _assistant
+    _assistant = assistant
+
+
+@tool
+def generate_daily_brief() -> str:
+    """
+    Generate and return the user's daily brief.
+
+    WHEN TO USE:
+    - User asks for their daily brief or morning summary
+    - User says "give me my brief", "daily update", "what's my day look like?"
+
+    RETURNS:
+    - A formatted daily brief with calendar highlights, reminders, and crucial events
+    """
+    logger.info("=== GENERATE DAILY BRIEF (from chat) ===")
+    try:
+        global _assistant
+        if _assistant is None:
+            return "Error: Assistant not initialized."
+        return _assistant.generate_daily_brief()
+
+    except Exception as e:
+        logger.error(f"Failed to generate daily brief: {e}")
+        return f"Error generating daily brief: {str(e)}"

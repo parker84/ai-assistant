@@ -25,6 +25,7 @@ from src.logging_utils import get_logger
 from src.tools import (
     set_credentials,
     set_knowledge_base,
+    set_assistant,
     get_todays_events,
     get_upcoming_events,
     find_free_time_slots,
@@ -36,6 +37,10 @@ from src.tools import (
     get_reminders,
     add_reminder,
     remove_reminder,
+    get_crucial_events,
+    add_crucial_event,
+    remove_crucial_event,
+    generate_daily_brief,
 )
 
 logger = get_logger(__name__)
@@ -161,6 +166,10 @@ class AIAssistant:
                 get_reminders,
                 add_reminder,
                 remove_reminder,
+                get_crucial_events,
+                add_crucial_event,
+                remove_crucial_event,
+                generate_daily_brief,
             ],
             instructions=ASSISTANT_INSTRUCTIONS,
             additional_context=self.additional_context,
@@ -188,7 +197,10 @@ class AIAssistant:
         )
 
         logger.info(f"Agno agent initialized with {len(self.agent.tools)} tools")
-    
+
+        # Set assistant reference for daily brief tool
+        set_assistant(self)
+
     def update_credentials(self, credentials):
         """Update the calendar credentials."""
         set_credentials(credentials)
@@ -332,6 +344,10 @@ class AIAssistant:
                 get_reminders,
                 add_reminder,
                 remove_reminder,
+                get_crucial_events,
+                add_crucial_event,
+                remove_crucial_event,
+                generate_daily_brief,
             ],
             instructions=ASSISTANT_INSTRUCTIONS,
             additional_context=self.additional_context,
