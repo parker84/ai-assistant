@@ -2,7 +2,7 @@
 from datetime import datetime, timezone
 
 from decouple import config
-from sqlalchemy import Column, DateTime, Integer, String, Text, UniqueConstraint, create_engine
+from sqlalchemy import BigInteger, Column, DateTime, Integer, String, Text, UniqueConstraint, create_engine
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, sessionmaker
 
@@ -69,6 +69,15 @@ class CrucialEvent(Base):
     __table_args__ = (
         UniqueConstraint("user_email", "name", name="uq_crucial_event"),
     )
+
+
+class TelegramUser(Base):
+    __tablename__ = "telegram_users"
+
+    id = Column(Integer, primary_key=True)
+    telegram_chat_id = Column(BigInteger, unique=True, nullable=False)
+    user_email = Column(String, nullable=False)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
 
 def init_db():

@@ -32,3 +32,6 @@ TIMEZONE = os.getenv("TIMEZONE", "America/Toronto")
 # Email settings
 GMAIL_ADDRESS = os.getenv("GMAIL_ADDRESS", "")
 GMAIL_APP_PASSWORD = os.getenv("GMAIL_APP_PASSWORD", "")
+
+# Telegram bot (optional)
+TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
