@@ -764,6 +764,128 @@ def remove_reminder(category: str, index: int) -> str:
 
 
 # =========================
+# Grocery List Tools
+# =========================
+
+@tool
+def get_grocery_list() -> str:
+    """
+    Get the full grocery list (recurring and one-time items).
+
+    WHEN TO USE:
+    - User asks "what's on my grocery list?"
+    - User wants to see their groceries
+
+    RETURNS:
+    - A formatted string listing recurring and one-time grocery items
+    """
+    logger.info("=== GET GROCERY LIST ===")
+    try:
+        kb = _get_knowledge_base()
+        items = kb.get_grocery_items()
+
+        lines = []
+        if items["recurring"]:
+            lines.append("**Recurring (weekly staples):**")
+            for i, item in enumerate(items["recurring"]):
+                lines.append(f"  {i + 1}. {item}")
+        if items["one-time"]:
+            lines.append("**One-time:**")
+            for i, item in enumerate(items["one-time"]):
+                lines.append(f"  {i + 1}. {item}")
+
+        if not lines:
+            return "Grocery list is empty."
+
+        return "\n".join(lines)
+
+    except Exception as e:
+        logger.error(f"Failed to get grocery list: {e}")
+        return f"Error getting grocery list: {str(e)}"
+
+
+@tool
+def add_to_grocery_list(category: str, text: str) -> str:
+    """
+    Add an item to the grocery list.
+
+    WHEN TO USE:
+    - User says "add milk to my groceries" or "put eggs on my grocery list"
+    - User wants to add a recurring staple or a one-time item
+
+    ARGS:
+    - category (str): "recurring" for weekly staples or "one-time" for this-week-only items
+    - text (str): The grocery item text
+
+    RETURNS:
+    - Confirmation that the item was added
+    """
+    logger.info(f"=== ADD GROCERY ITEM: [{category}] {text} ===")
+    try:
+        kb = _get_knowledge_base()
+        if kb.add_grocery_item(category, text):
+            return f"✅ Added to {category} groceries: {text}"
+        return f"Item already exists or invalid category. Category must be 'recurring' or 'one-time'."
+
+    except Exception as e:
+        logger.error(f"Failed to add grocery item: {e}")
+        return f"Error adding grocery item: {str(e)}"
+
+
+@tool
+def remove_from_grocery_list(category: str, index: int) -> str:
+    """
+    Remove a grocery item by its position number.
+
+    WHEN TO USE:
+    - User wants to delete a specific grocery item
+    - User says "remove item #2 from my recurring groceries"
+
+    ARGS:
+    - category (str): "recurring" or "one-time"
+    - index (int): The 0-based index of the item to remove (first item = 0)
+
+    RETURNS:
+    - Confirmation that the item was removed
+    """
+    logger.info(f"=== REMOVE GROCERY ITEM: [{category}] index={index} ===")
+    try:
+        kb = _get_knowledge_base()
+        if kb.remove_grocery_item(category, index):
+            return f"✅ Removed {category} grocery item at position {index + 1}."
+        return f"Could not remove item. Check the category and position number."
+
+    except Exception as e:
+        logger.error(f"Failed to remove grocery item: {e}")
+        return f"Error removing grocery item: {str(e)}"
+
+
+@tool
+def clear_weekly_grocery_items() -> str:
+    """
+    Clear all one-time grocery items (e.g. after a weekly shop).
+
+    WHEN TO USE:
+    - User says "clear my one-time groceries" or "I've done my shopping"
+    - User wants to reset the one-time list after shopping
+
+    RETURNS:
+    - Confirmation with the number of items cleared
+    """
+    logger.info("=== CLEAR ONE-TIME GROCERY ITEMS ===")
+    try:
+        kb = _get_knowledge_base()
+        count = kb.clear_onetime_grocery_items()
+        if count > 0:
+            return f"✅ Cleared {count} one-time grocery item{'s' if count != 1 else ''}."
+        return "No one-time grocery items to clear."
+
+    except Exception as e:
+        logger.error(f"Failed to clear one-time groceries: {e}")
+        return f"Error clearing one-time groceries: {str(e)}"
+
+
+# =========================
 # Crucial Event Tools
 # =========================
 

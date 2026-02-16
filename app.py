@@ -232,7 +232,7 @@ def render_sidebar():
         # Navigation
         page = st.radio(
             "Navigation",
-            ["🦾 Auto", "🧠 Knowledge Base", "📊 Daily Brief"],
+            ["🦾 Auto", "🧠 Knowledge Base", "📊 Daily Brief", "🛒 Grocery List"],
             label_visibility="collapsed",
         )
         
@@ -535,6 +535,57 @@ def render_daily_brief_page():
                 st.error(f"Error: {e}")
 
 
+def render_grocery_page():
+    """Render the grocery list management page."""
+    st.title("🛒 Grocery List")
+
+    kb = st.session_state.knowledge_base
+    if not kb:
+        st.warning("Knowledge base not initialized.")
+        return
+
+    items = kb.get_grocery_items()
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+        st.markdown("**Recurring (weekly staples)**")
+        for i, item in enumerate(items.get("recurring", [])):
+            rc1, rc2 = st.columns([4, 1])
+            with rc1:
+                st.text(item)
+            with rc2:
+                if st.button("🗑️", key=f"del_recurring_{i}"):
+                    kb.remove_grocery_item("recurring", i)
+                    st.rerun()
+        new_recurring = st.text_input("Add recurring item", key="new_recurring_grocery", placeholder="e.g. Milk")
+        if st.button("Add", key="add_recurring_grocery") and new_recurring:
+            kb.add_grocery_item("recurring", new_recurring)
+            st.rerun()
+
+    with col2:
+        st.markdown("**One-time (this week only)**")
+        for i, item in enumerate(items.get("one-time", [])):
+            rc1, rc2 = st.columns([4, 1])
+            with rc1:
+                st.text(item)
+            with rc2:
+                if st.button("🗑️", key=f"del_onetime_{i}"):
+                    kb.remove_grocery_item("one-time", i)
+                    st.rerun()
+        new_onetime = st.text_input("Add one-time item", key="new_onetime_grocery", placeholder="e.g. Birthday cake")
+        if st.button("Add", key="add_onetime_grocery") and new_onetime:
+            kb.add_grocery_item("one-time", new_onetime)
+            st.rerun()
+
+        if items.get("one-time"):
+            st.divider()
+            if st.button("🧹 Clear all one-time items", key="clear_onetime_grocery", use_container_width=True):
+                count = kb.clear_onetime_grocery_items()
+                st.toast(f"Cleared {count} one-time item{'s' if count != 1 else ''}.")
+                st.rerun()
+
+
 def main():
     """Main application entry point."""
     init_session_state()
@@ -567,6 +618,8 @@ def main():
         render_knowledge_base_page()
     elif page == "📊 Daily Brief":
         render_daily_brief_page()
+    elif page == "🛒 Grocery List":
+        render_grocery_page()
 
 
 if __name__ == "__main__":

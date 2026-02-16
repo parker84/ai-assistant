@@ -71,6 +71,19 @@ class CrucialEvent(Base):
     )
 
 
+class GroceryItem(Base):
+    __tablename__ = "grocery_items"
+
+    id = Column(Integer, primary_key=True)
+    user_email = Column(String, nullable=False)
+    category = Column(String, nullable=False)  # "recurring" or "one-time"
+    text = Column(Text, nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint("user_email", "category", "text", name="uq_grocery_item"),
+    )
+
+
 class TelegramUser(Base):
     __tablename__ = "telegram_users"
 

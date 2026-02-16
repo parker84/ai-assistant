@@ -10,6 +10,7 @@ from src.database import (
     KnowledgeBaseBackup,
     Reminder,
     CrucialEvent,
+    GroceryItem,
 )
 from src.logging_utils import get_logger
 
@@ -303,6 +304,79 @@ class KnowledgeBase:
     def get_daily_brief_context(self) -> str:
         """Get knowledge base content for context (reminders are separate, managed in Daily Brief settings)."""
         return self.get_knowledge_base()
+
+    def get_grocery_items(self) -> Dict[str, List[str]]:
+        """Get all grocery items (recurring + one-time)."""
+        with SessionLocal() as session:
+            rows = session.query(GroceryItem).filter_by(user_email=self.user_email).order_by(GroceryItem.id).all()
+            result: Dict[str, List[str]] = {"recurring": [], "one-time": []}
+            for row in rows:
+                if row.category in result:
+                    result[row.category].append(row.text)
+            return result
+
+    def add_grocery_item(self, category: str, text: str) -> bool:
+        """Add a grocery item (category: 'recurring' or 'one-time')."""
+        if category not in ("recurring", "one-time"):
+            return False
+        try:
+            text = text.strip()
+            if not text:
+                return False
+            with SessionLocal() as session:
+                exists = (
+                    session.query(GroceryItem)
+                    .filter_by(user_email=self.user_email, category=category, text=text)
+                    .first()
+                )
+                if exists:
+                    return False
+                session.add(GroceryItem(
+                    user_email=self.user_email,
+                    category=category,
+                    text=text,
+                ))
+                session.commit()
+            return True
+        except Exception as e:
+            logger.error(f"Error adding grocery item: {e}")
+            return False
+
+    def remove_grocery_item(self, category: str, index: int) -> bool:
+        """Remove a grocery item by index."""
+        if category not in ("recurring", "one-time"):
+            return False
+        try:
+            with SessionLocal() as session:
+                rows = (
+                    session.query(GroceryItem)
+                    .filter_by(user_email=self.user_email, category=category)
+                    .order_by(GroceryItem.id)
+                    .all()
+                )
+                if 0 <= index < len(rows):
+                    session.delete(rows[index])
+                    session.commit()
+                    return True
+            return False
+        except Exception as e:
+            logger.error(f"Error removing grocery item: {e}")
+            return False
+
+    def clear_onetime_grocery_items(self) -> int:
+        """Clear all one-time grocery items. Returns count cleared."""
+        try:
+            with SessionLocal() as session:
+                count = (
+                    session.query(GroceryItem)
+                    .filter_by(user_email=self.user_email, category="one-time")
+                    .delete()
+                )
+                session.commit()
+                return count
+        except Exception as e:
+            logger.error(f"Error clearing one-time grocery items: {e}")
+            return 0
 
     def search_knowledge_base(self, query: str) -> List[str]:
         """Search the knowledge base for relevant content."""

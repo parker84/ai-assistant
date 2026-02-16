@@ -41,6 +41,10 @@ from src.tools import (
     add_crucial_event,
     remove_crucial_event,
     generate_daily_brief,
+    get_grocery_list,
+    add_to_grocery_list,
+    remove_from_grocery_list,
+    clear_weekly_grocery_items,
 )
 
 logger = get_logger(__name__)
@@ -80,6 +84,7 @@ ASSISTANT_INSTRUCTIONS = dedent("""
     - Add birthday reminders that recur yearly
     - Find available time slots for scheduling
     - Send emails on behalf of the user
+    - Manage a grocery list with recurring staples and one-time items
 
     IMPORTANT GUIDELINES:
 
@@ -170,6 +175,10 @@ class AIAssistant:
                 add_crucial_event,
                 remove_crucial_event,
                 generate_daily_brief,
+                get_grocery_list,
+                add_to_grocery_list,
+                remove_from_grocery_list,
+                clear_weekly_grocery_items,
             ],
             instructions=ASSISTANT_INSTRUCTIONS,
             additional_context=self.additional_context,
@@ -348,6 +357,10 @@ class AIAssistant:
                 add_crucial_event,
                 remove_crucial_event,
                 generate_daily_brief,
+                get_grocery_list,
+                add_to_grocery_list,
+                remove_from_grocery_list,
+                clear_weekly_grocery_items,
             ],
             instructions=ASSISTANT_INSTRUCTIONS,
             additional_context=self.additional_context,
