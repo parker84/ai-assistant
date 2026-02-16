@@ -1,4 +1,5 @@
 """AI Assistant using Agno framework."""
+import asyncio
 from textwrap import dedent
 from typing import Optional
 from datetime import datetime
@@ -49,6 +50,12 @@ from src.tools import (
     add_todo_item,
     remove_todo_item,
     clear_todo_items,
+)
+from src.web_tools import (
+    search_web,
+    search_web_multi,
+    fetch_url_contents,
+    fetch_urls,
 )
 
 logger = get_logger(__name__)
@@ -123,6 +130,19 @@ ASSISTANT_INSTRUCTIONS = dedent("""
        - Be concise but friendly
        - Use emojis sparingly for visual clarity
        - When showing calendar info, format it nicely
+
+    7. **Web Search & Browsing**:
+       - You can search the web and fetch page contents to find products, restaurants, and information
+       - Use search_web or search_web_multi to find options, then fetch_urls to get details
+       - When the user asks about a product or shares a URL, extract details (name, price, options, availability)
+       - Always provide a direct link so the user can complete the purchase or booking themselves
+       - NEVER attempt to make purchases — always give the user the link to do it
+
+    8. **Restaurant Reservations (OpenTable)**:
+       - When the user wants a dinner reservation, search OpenTable for the restaurant
+       - Extract available times, party size options, and pricing info
+       - Provide the direct OpenTable booking link so the user can complete the reservation
+       - Consider the user's location and preferences from their knowledge base
 """)
 
 
@@ -188,6 +208,10 @@ class AIAssistant:
                 add_todo_item,
                 remove_todo_item,
                 clear_todo_items,
+                search_web,
+                search_web_multi,
+                fetch_url_contents,
+                fetch_urls,
             ],
             instructions=ASSISTANT_INSTRUCTIONS,
             additional_context=self.additional_context,
@@ -230,8 +254,8 @@ class AIAssistant:
         logger.info(f"User message: {user_message[:100]}{'...' if len(user_message) > 100 else ''}")
         
         try:
-            # Run the agent synchronously
-            response = self.agent.run(user_message)
+            # Run the agent (async arun so async tools e.g. search_web work)
+            response = asyncio.run(self.agent.arun(user_message))
             
             result = response.content if response.content else "I couldn't generate a response."
             logger.info(f"Chat response generated ({len(result)} chars)")
@@ -374,6 +398,10 @@ class AIAssistant:
                 add_todo_item,
                 remove_todo_item,
                 clear_todo_items,
+                search_web,
+                search_web_multi,
+                fetch_url_contents,
+                fetch_urls,
             ],
             instructions=ASSISTANT_INSTRUCTIONS,
             additional_context=self.additional_context,

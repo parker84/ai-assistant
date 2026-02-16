@@ -35,3 +35,6 @@ GMAIL_APP_PASSWORD = os.getenv("GMAIL_APP_PASSWORD", "")
 
 # Telegram bot (optional)
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
+
+# Web search (pure.md)
+PUREMD_API_KEY = os.getenv("PUREMD_API_KEY", "")
