@@ -404,6 +404,7 @@ def create_birthday_reminder(
             "start": {"date": start_date_str},
             "end": {"date": end_date_str},
             "recurrence": ["RRULE:FREQ=YEARLY"],
+            "transparency": "transparent",
         }
         
         logger.info(f"Birthday event payload: {event}")
@@ -451,10 +452,11 @@ def create_recurring_all_day_event(title: str, date_str: str) -> str:
 
         event = {
             "summary": title,
-            "description": f"Recurring reminder",
+            "description": "Recurring reminder",
             "start": {"date": start_date_str},
             "end": {"date": end_date_str},
             "recurrence": ["RRULE:FREQ=YEARLY"],
+            "transparency": "transparent",
         }
 
         created_event = service.events().insert(calendarId="primary", body=event).execute()
@@ -818,9 +820,12 @@ def add_crucial_event(name: str, date: str) -> str:
     logger.info(f"=== ADD CRUCIAL EVENT: {name} on {date} ===")
     try:
         kb = _get_knowledge_base()
-        if kb.add_crucial_event(name, date):
-            return f"✅ Added crucial event: {name} on {date}"
-        return f"Event '{name}' already exists."
+        if not kb.add_crucial_event(name, date):
+            return f"Event '{name}' already exists."
+
+        # Also create a recurring all-day calendar event (shows as free)
+        cal_result = create_recurring_all_day_event(name, date)
+        return f"✅ Added crucial event: {name} on {date}\n{cal_result}"
 
     except Exception as e:
         logger.error(f"Failed to add crucial event: {e}")
