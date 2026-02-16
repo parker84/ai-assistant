@@ -886,6 +886,131 @@ def clear_weekly_grocery_items() -> str:
 
 
 # =========================
+# Todo List Tools
+# =========================
+
+@tool
+def get_todo_list() -> str:
+    """
+    Get the full todo list (personal and work items).
+
+    WHEN TO USE:
+    - User asks "what's on my todo list?" or "what do I need to do?"
+    - User wants to see their tasks
+
+    RETURNS:
+    - A formatted string listing personal and work todo items
+    """
+    logger.info("=== GET TODO LIST ===")
+    try:
+        kb = _get_knowledge_base()
+        items = kb.get_todo_items()
+
+        lines = []
+        if items["personal"]:
+            lines.append("**Personal:**")
+            for i, item in enumerate(items["personal"]):
+                lines.append(f"  {i + 1}. {item}")
+        if items["work"]:
+            lines.append("**Work:**")
+            for i, item in enumerate(items["work"]):
+                lines.append(f"  {i + 1}. {item}")
+
+        if not lines:
+            return "Todo list is empty."
+
+        return "\n".join(lines)
+
+    except Exception as e:
+        logger.error(f"Failed to get todo list: {e}")
+        return f"Error getting todo list: {str(e)}"
+
+
+@tool
+def add_todo_item(category: str, text: str) -> str:
+    """
+    Add an item to the todo list.
+
+    WHEN TO USE:
+    - User says "add to my todo list" or "I need to do ..."
+    - User wants to track a personal or work task
+
+    ARGS:
+    - category (str): "personal" or "work"
+    - text (str): The todo item text
+
+    RETURNS:
+    - Confirmation that the item was added
+    """
+    logger.info(f"=== ADD TODO ITEM: [{category}] {text} ===")
+    try:
+        kb = _get_knowledge_base()
+        if kb.add_todo_item(category, text):
+            return f"✅ Added to {category} todos: {text}"
+        return f"Item already exists or invalid category. Category must be 'personal' or 'work'."
+
+    except Exception as e:
+        logger.error(f"Failed to add todo item: {e}")
+        return f"Error adding todo item: {str(e)}"
+
+
+@tool
+def remove_todo_item(category: str, index: int) -> str:
+    """
+    Remove a todo item by its position number.
+
+    WHEN TO USE:
+    - User wants to mark a todo as done or remove it
+    - User says "remove todo #2" or "done with the first work task"
+
+    ARGS:
+    - category (str): "personal" or "work"
+    - index (int): The 0-based index of the item to remove (first item = 0)
+
+    RETURNS:
+    - Confirmation that the item was removed
+    """
+    logger.info(f"=== REMOVE TODO ITEM: [{category}] index={index} ===")
+    try:
+        kb = _get_knowledge_base()
+        if kb.remove_todo_item(category, index):
+            return f"✅ Removed {category} todo at position {index + 1}."
+        return f"Could not remove item. Check the category and position number."
+
+    except Exception as e:
+        logger.error(f"Failed to remove todo item: {e}")
+        return f"Error removing todo item: {str(e)}"
+
+
+@tool
+def clear_todo_items(category: str) -> str:
+    """
+    Clear all todo items in a category.
+
+    WHEN TO USE:
+    - User says "clear my personal todos" or "clear all work tasks"
+    - User wants to reset a todo category
+
+    ARGS:
+    - category (str): "personal" or "work"
+
+    RETURNS:
+    - Confirmation with the number of items cleared
+    """
+    logger.info(f"=== CLEAR TODO ITEMS: [{category}] ===")
+    try:
+        kb = _get_knowledge_base()
+        count = kb.clear_todo_items(category)
+        if count > 0:
+            return f"✅ Cleared {count} {category} todo item{'s' if count != 1 else ''}."
+        return f"No {category} todo items to clear."
+
+    except Exception as e:
+        logger.error(f"Failed to clear todo items: {e}")
+        return f"Error clearing todo items: {str(e)}"
+
+
+# =========================
 # Crucial Event Tools
 # =========================
 

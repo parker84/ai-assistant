@@ -1,23 +1,13 @@
 """Streamlit AI Assistant Application."""
 import streamlit as st
-from datetime import datetime, timedelta
-import pytz
-
+import time
 from src.config import APP_NAME, TIMEZONE, GOOGLE_CLIENT_ID
+
 from src.integrations.google_auth import (
     get_google_auth_url,
     check_authentication,
     get_credentials_from_tokens,
     logout,
-)
-from src.integrations.calendar import (
-    get_todays_events,
-    get_upcoming_events,
-    get_calendar_summary,
-    create_event,
-    create_recurring_birthday,
-    create_interview_event,
-    find_free_slots,
 )
 from src.tools import set_credentials, create_recurring_all_day_event
 from src.knowledge_base import KnowledgeBase
@@ -232,7 +222,7 @@ def render_sidebar():
         # Navigation
         page = st.radio(
             "Navigation",
-            ["🦾 Auto", "🧠 Knowledge Base", "📊 Daily Brief", "🛒 Grocery List"],
+            ["🦾 Auto", "🧠 Knowledge Base", "📊 Daily Brief", "🛒 Grocery List", "✅ Todo List"],
             label_visibility="collapsed",
         )
         
@@ -586,6 +576,68 @@ def render_grocery_page():
                 st.rerun()
 
 
+def render_todo_page():
+    """Render the todo list management page."""
+    st.title("✅ Todo List")
+
+    kb = st.session_state.knowledge_base
+    if not kb:
+        st.warning("Knowledge base not initialized.")
+        return
+
+    items = kb.get_todo_items()
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+        st.markdown("**Personal 💁‍♀️**")
+        for i, item in enumerate(items.get("personal", [])):
+            rc1, rc2 = st.columns([4, 1])
+            with rc1:
+                st.text(item)
+            with rc2:
+                if st.button("✅", key=f"del_todo_personal_{i}"):
+                    kb.remove_todo_item("personal", i)
+                    st.toast(f"{item} marked as done ✅")
+                    time.sleep(2)
+                    st.rerun()
+        new_personal = st.text_input("Add personal todo", key="new_personal_todo", placeholder="e.g. Book dentist appointment")
+        if st.button("Add", key="add_personal_todo") and new_personal:
+            kb.add_todo_item("personal", new_personal)
+            st.rerun()
+
+        if items.get("personal"):
+            st.divider()
+            if st.button("🧹 Clear all personal todos", key="clear_personal_todo", use_container_width=True):
+                count = kb.clear_todo_items("personal")
+                st.toast(f"Cleared {count} personal todo{'s' if count != 1 else ''}.")
+                st.rerun()
+
+    with col2:
+        st.markdown("**Work 💻**")
+        for i, item in enumerate(items.get("work", [])):
+            rc1, rc2 = st.columns([4, 1])
+            with rc1:
+                st.text(item)
+            with rc2:
+                if st.button("✅", key=f"del_todo_work_{i}"):
+                    kb.remove_todo_item("work", i)
+                    st.toast(f"{item} marked as done ✅")
+                    time.sleep(2)
+                    st.rerun()
+        new_work = st.text_input("Add work todo", key="new_work_todo", placeholder="e.g. Review PR #42")
+        if st.button("Add", key="add_work_todo") and new_work:
+            kb.add_todo_item("work", new_work)
+            st.rerun()
+
+        if items.get("work"):
+            st.divider()
+            if st.button("🧹 Clear all work todos", key="clear_work_todo", use_container_width=True):
+                count = kb.clear_todo_items("work")
+                st.toast(f"Cleared {count} work todo{'s' if count != 1 else ''}.")
+                st.rerun()
+
+
 def main():
     """Main application entry point."""
     init_session_state()
@@ -620,6 +672,8 @@ def main():
         render_daily_brief_page()
     elif page == "🛒 Grocery List":
         render_grocery_page()
+    elif page == "✅ Todo List":
+        render_todo_page()
 
 
 if __name__ == "__main__":

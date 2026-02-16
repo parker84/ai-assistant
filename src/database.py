@@ -84,6 +84,19 @@ class GroceryItem(Base):
     )
 
 
+class TodoItem(Base):
+    __tablename__ = "todo_items"
+
+    id = Column(Integer, primary_key=True)
+    user_email = Column(String, nullable=False)
+    category = Column(String, nullable=False)  # "personal" or "work"
+    text = Column(Text, nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint("user_email", "category", "text", name="uq_todo_item"),
+    )
+
+
 class TelegramUser(Base):
     __tablename__ = "telegram_users"
 

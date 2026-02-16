@@ -11,6 +11,7 @@ from src.database import (
     Reminder,
     CrucialEvent,
     GroceryItem,
+    TodoItem,
 )
 from src.logging_utils import get_logger
 
@@ -376,6 +377,81 @@ class KnowledgeBase:
                 return count
         except Exception as e:
             logger.error(f"Error clearing one-time grocery items: {e}")
+            return 0
+
+    def get_todo_items(self) -> Dict[str, List[str]]:
+        """Get all todo items (personal + work)."""
+        with SessionLocal() as session:
+            rows = session.query(TodoItem).filter_by(user_email=self.user_email).order_by(TodoItem.id).all()
+            result: Dict[str, List[str]] = {"personal": [], "work": []}
+            for row in rows:
+                if row.category in result:
+                    result[row.category].append(row.text)
+            return result
+
+    def add_todo_item(self, category: str, text: str) -> bool:
+        """Add a todo item (category: 'personal' or 'work')."""
+        if category not in ("personal", "work"):
+            return False
+        try:
+            text = text.strip()
+            if not text:
+                return False
+            with SessionLocal() as session:
+                exists = (
+                    session.query(TodoItem)
+                    .filter_by(user_email=self.user_email, category=category, text=text)
+                    .first()
+                )
+                if exists:
+                    return False
+                session.add(TodoItem(
+                    user_email=self.user_email,
+                    category=category,
+                    text=text,
+                ))
+                session.commit()
+            return True
+        except Exception as e:
+            logger.error(f"Error adding todo item: {e}")
+            return False
+
+    def remove_todo_item(self, category: str, index: int) -> bool:
+        """Remove a todo item by index."""
+        if category not in ("personal", "work"):
+            return False
+        try:
+            with SessionLocal() as session:
+                rows = (
+                    session.query(TodoItem)
+                    .filter_by(user_email=self.user_email, category=category)
+                    .order_by(TodoItem.id)
+                    .all()
+                )
+                if 0 <= index < len(rows):
+                    session.delete(rows[index])
+                    session.commit()
+                    return True
+            return False
+        except Exception as e:
+            logger.error(f"Error removing todo item: {e}")
+            return False
+
+    def clear_todo_items(self, category: str) -> int:
+        """Clear all todo items in a category. Returns count cleared."""
+        if category not in ("personal", "work"):
+            return 0
+        try:
+            with SessionLocal() as session:
+                count = (
+                    session.query(TodoItem)
+                    .filter_by(user_email=self.user_email, category=category)
+                    .delete()
+                )
+                session.commit()
+                return count
+        except Exception as e:
+            logger.error(f"Error clearing todo items: {e}")
             return 0
 
     def search_knowledge_base(self, query: str) -> List[str]:

@@ -45,6 +45,10 @@ from src.tools import (
     add_to_grocery_list,
     remove_from_grocery_list,
     clear_weekly_grocery_items,
+    get_todo_list,
+    add_todo_item,
+    remove_todo_item,
+    clear_todo_items,
 )
 
 logger = get_logger(__name__)
@@ -85,6 +89,7 @@ ASSISTANT_INSTRUCTIONS = dedent("""
     - Find available time slots for scheduling
     - Send emails on behalf of the user
     - Manage a grocery list with recurring staples and one-time items
+    - Manage a todo list with personal and work items
 
     IMPORTANT GUIDELINES:
 
@@ -179,6 +184,10 @@ class AIAssistant:
                 add_to_grocery_list,
                 remove_from_grocery_list,
                 clear_weekly_grocery_items,
+                get_todo_list,
+                add_todo_item,
+                remove_todo_item,
+                clear_todo_items,
             ],
             instructions=ASSISTANT_INSTRUCTIONS,
             additional_context=self.additional_context,
@@ -361,6 +370,10 @@ class AIAssistant:
                 add_to_grocery_list,
                 remove_from_grocery_list,
                 clear_weekly_grocery_items,
+                get_todo_list,
+                add_todo_item,
+                remove_todo_item,
+                clear_todo_items,
             ],
             instructions=ASSISTANT_INSTRUCTIONS,
             additional_context=self.additional_context,
