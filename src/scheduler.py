@@ -11,8 +11,10 @@ from google.auth.transport.requests import Request
 
 from src.assistant import AIAssistant
 from src.integrations.google_auth import load_user_tokens, get_credentials_from_tokens
-from src.config import TIMEZONE, GMAIL_ADDRESS, GMAIL_APP_PASSWORD
+from src.config import TIMEZONE, GMAIL_ADDRESS, GMAIL_APP_PASSWORD, TELEGRAM_BOT_TOKEN
+from src.database import SessionLocal, TelegramUser
 from src.logging_utils import get_logger
+import socket
 import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
@@ -26,86 +28,116 @@ USER_EMAIL = config("USER_EMAIL", default="")
 
 
 def send_daily_brief():
-    """Generate and send the daily brief via email."""
+    """Generate and send the daily brief via email and Telegram."""
     logger.info("=== STARTING DAILY BRIEF JOB ===")
 
-    if not USER_EMAIL:
-        logger.error("USER_EMAIL not configured in .env")
-        return
-
-    if not GMAIL_ADDRESS:
-        logger.error("GMAIL_ADDRESS not configured in .env")
-        return
-
-    try:
-        # Get user's Google credentials from file
-        logger.info(f"Loading credentials for {USER_EMAIL}")
-        token_data = load_user_tokens(USER_EMAIL)
-
-        if not token_data:
-            logger.error(f"No credentials found for {USER_EMAIL}. User needs to authenticate first via the web app.")
-            return
-
-        # Convert to Credentials object (handles refresh automatically)
-        credentials = get_credentials_from_tokens(token_data)
-
-        if not credentials:
-            logger.error("Failed to create credentials from tokens")
-            return
-
-        # Initialize assistant
-        logger.info("Initializing assistant")
-        assistant = AIAssistant(USER_EMAIL, credentials=credentials)
-
-        # Generate daily brief
-        logger.info("Generating daily brief")
-        brief = assistant.generate_daily_brief()
-
-        # Get current date for subject
-        tz = pytz.timezone(TIMEZONE)
-        today = datetime.now(tz)
-        subject = f"📊 Daily Brief - {today.strftime('%A, %B %d, %Y')}"
-
-        # Send email directly (not using @tool wrapper)
-        logger.info(f"Sending daily brief email to {USER_EMAIL}")
-
+    # --- Email delivery ---
+    if USER_EMAIL and GMAIL_ADDRESS:
         try:
-            # Create message
-            msg = MIMEMultipart()
-            msg['From'] = GMAIL_ADDRESS
-            msg['To'] = USER_EMAIL
-            msg['Subject'] = subject
-            msg.attach(MIMEText(brief, 'plain'))
+            logger.info(f"Loading credentials for {USER_EMAIL}")
+            token_data = load_user_tokens(USER_EMAIL)
 
-            # Send via Gmail SMTP
-            with smtplib.SMTP_SSL('smtp.gmail.com', 465) as server:
-                server.login(GMAIL_ADDRESS, GMAIL_APP_PASSWORD)
-                server.send_message(msg)
+            if not token_data:
+                logger.error(f"No credentials found for {USER_EMAIL}. User needs to authenticate first via the web app.")
+            else:
+                credentials = get_credentials_from_tokens(token_data)
 
-            logger.info("=== DAILY BRIEF SENT SUCCESSFULLY ===")
-            logger.info(f"Email sent to {USER_EMAIL}")
+                if not credentials:
+                    logger.error("Failed to create credentials from tokens")
+                else:
+                    logger.info("Initializing assistant")
+                    assistant = AIAssistant(USER_EMAIL, credentials=credentials)
+
+                    logger.info("Generating daily brief")
+                    brief = assistant.generate_daily_brief()
+
+                    tz = pytz.timezone(TIMEZONE)
+                    today = datetime.now(tz)
+                    subject = f"📊 Daily Brief - {today.strftime('%A, %B %d, %Y')}"
+
+                    logger.info(f"Sending daily brief email to {USER_EMAIL}")
+                    try:
+                        msg = MIMEMultipart()
+                        msg['From'] = GMAIL_ADDRESS
+                        msg['To'] = USER_EMAIL
+                        msg['Subject'] = subject
+                        msg.attach(MIMEText(brief, 'plain'))
+
+                        # Force IPv4 to avoid "Network is unreachable" on
+                        # hosts where IPv6 DNS resolves but has no route.
+                        addr = socket.getaddrinfo(
+                            'smtp.gmail.com', 587,
+                            socket.AF_INET, socket.SOCK_STREAM,
+                        )[0][4]
+                        with smtplib.SMTP(addr[0], addr[1], timeout=30) as server:
+                            server.starttls()
+                            server.login(GMAIL_ADDRESS, GMAIL_APP_PASSWORD)
+                            server.send_message(msg)
+
+                        logger.info("=== EMAIL BRIEF SENT SUCCESSFULLY ===")
+                    except Exception as e:
+                        logger.error(f"Failed to send email: {e}")
+                        import traceback
+                        logger.error(traceback.format_exc())
 
         except Exception as e:
-            logger.error(f"Failed to send email: {e}")
+            logger.error(f"Email brief failed: {e}")
             import traceback
             logger.error(traceback.format_exc())
+    else:
+        logger.info("Email delivery skipped (USER_EMAIL or GMAIL_ADDRESS not configured)")
 
-    except Exception as e:
-        logger.error(f"=== DAILY BRIEF FAILED ===")
-        logger.error(f"Error: {e}")
-        import traceback
-        logger.error(traceback.format_exc())
+    # --- Telegram delivery ---
+    send_brief_via_telegram()
+
+
+def send_brief_via_telegram():
+    """Send daily brief to all linked Telegram users."""
+    if not TELEGRAM_BOT_TOKEN:
+        logger.info("TELEGRAM_BOT_TOKEN not set, skipping Telegram delivery")
+        return
+
+    with SessionLocal() as session:
+        telegram_users = session.query(TelegramUser).all()
+
+    if not telegram_users:
+        logger.info("No Telegram users linked, skipping Telegram delivery")
+        return
+
+    import telegram
+    bot = telegram.Bot(token=TELEGRAM_BOT_TOKEN)
+
+    for tg_user in telegram_users:
+        try:
+            logger.info(f"Generating Telegram brief for {tg_user.user_email}")
+            token_data = load_user_tokens(tg_user.user_email)
+            if not token_data:
+                logger.warning(f"No credentials for {tg_user.user_email}, skipping")
+                continue
+
+            credentials = get_credentials_from_tokens(token_data)
+            if not credentials:
+                logger.warning(f"Failed to create credentials for {tg_user.user_email}, skipping")
+                continue
+
+            assistant = AIAssistant(tg_user.user_email, credentials=credentials)
+            brief = assistant.generate_daily_brief()
+
+            import asyncio
+            asyncio.run(bot.send_message(chat_id=tg_user.telegram_chat_id, text=brief))
+            logger.info(f"Telegram brief sent to chat {tg_user.telegram_chat_id}")
+
+        except Exception as e:
+            logger.error(f"Failed to send Telegram brief to {tg_user.user_email}: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
 
 
 def run_scheduler():
     """Run the background scheduler."""
     logger.info("=== STARTING SCHEDULER ===")
     logger.info(f"Daily brief scheduled for {BRIEF_HOUR:02d}:{BRIEF_MINUTE:02d} {TIMEZONE}")
-    logger.info(f"User: {USER_EMAIL}")
-
-    if not USER_EMAIL:
-        logger.error("USER_EMAIL not set in .env - scheduler cannot run")
-        return
+    logger.info(f"User: {USER_EMAIL or '(none, Telegram-only)'}")
 
     scheduler = BlockingScheduler(timezone=TIMEZONE)
 
@@ -118,7 +150,7 @@ def run_scheduler():
             timezone=TIMEZONE
         ),
         id='daily_brief',
-        name='Send Daily Brief Email',
+        name='Send Daily Brief',
         replace_existing=True
     )
 
